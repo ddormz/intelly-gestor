@@ -1,0 +1,21 @@
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: intelly_gestor
+      MYSQL_USER: intelly
+      MYSQL_PASSWORD: intelly_local_only
+      MYSQL_ROOT_PASSWORD: root_local_only
+    ports:
+      - "3307:3306"
+    volumes:
+      - intelly_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uintelly", "-pintelly_local_only"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  intelly_mysql:

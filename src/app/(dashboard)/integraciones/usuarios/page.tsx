@@ -1,0 +1,11 @@
+import { asc } from "drizzle-orm";
+import { getDb } from "@/db";
+import { users } from "@/db/schema";
+import { Badge, Card } from "@/components/ui";
+import { createUserAction, disableUserAction } from "@/features/auth/admin-actions";
+import { requireUser } from "@/features/auth/session";
+
+export default async function UsersPage() {
+  await requireUser("admin"); const items = await getDb().select().from(users).orderBy(asc(users.name));
+  return <div className="space-y-6"><header><h1 className="page-title">Usuarios y sesiones</h1><p className="page-copy mt-1">Crea cuentas internas y revoca de inmediato el acceso de una cuenta desactivada.</p></header><div className="grid gap-6 xl:grid-cols-[1fr_390px]"><Card><table className="w-full text-sm"><thead><tr className="border-b text-left text-slate-500"><th className="pb-3">Usuario</th><th className="pb-3">Rol</th><th className="pb-3">Estado</th><th className="pb-3 text-right">Acción</th></tr></thead><tbody>{items.map((item) => <tr className="border-b border-slate-100" key={item.id}><td className="py-3"><strong>{item.name}</strong><br/><span className="text-xs text-slate-500">{item.email}</span></td><td className="capitalize">{item.role}</td><td><Badge status={item.status === "active" ? "paid" : "rejected"}>{item.status}</Badge></td><td className="text-right">{item.status === "active" ? <form action={disableUserAction}><input type="hidden" name="id" value={item.id}/><button className="btn-secondary">Desactivar</button></form> : "—"}</td></tr>)}</tbody></table></Card><Card><h2 className="mb-4 text-lg font-bold">Nueva cuenta</h2><form action={createUserAction} className="grid gap-3"><label className="grid gap-1 text-sm font-semibold">Nombre<input required name="name" className="field"/></label><label className="grid gap-1 text-sm font-semibold">Correo<input required type="email" name="email" className="field"/></label><label className="grid gap-1 text-sm font-semibold">Contraseña temporal<input required minLength={12} type="password" name="password" className="field"/></label><label className="grid gap-1 text-sm font-semibold">Rol<select name="role" className="field"><option value="operator">Operador</option><option value="admin">Administrador</option></select></label><button className="btn-primary">Crear cuenta</button></form></Card></div></div>;
+}

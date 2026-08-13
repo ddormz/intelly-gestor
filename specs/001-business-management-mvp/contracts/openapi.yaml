@@ -1,0 +1,105 @@
+openapi: 3.1.0
+info:
+  title: Intelly Gestor Boundary API
+  version: 0.1.0
+  description: Contracts for browser and integration boundaries; internal pages primarily use server actions.
+servers:
+  - url: /api
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Process is healthy; dependency detail is not exposed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: ok }
+  /auth/session:
+    delete:
+      operationId: logout
+      responses:
+        '204': { description: Current session revoked }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /orders/{orderId}/payments:
+    post:
+      operationId: recordPayment
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [amount, currency, method, paidAt]
+              properties:
+                amount: { type: string, pattern: '^\\d+(\\.\\d{1,2})?$' }
+                currency: { type: string, const: CLP }
+                method: { type: string, enum: [manual, external] }
+                reference: { type: string, maxLength: 120 }
+                paidAt: { type: string, format: date-time }
+      responses:
+        '201': { description: Payment recorded exactly once }
+        '200': { description: Existing result returned for a repeated idempotency key }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { description: Order state or idempotency payload conflict }
+  /orders/{orderId}/invoice:
+    post:
+      operationId: issueInvoice
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { description: Existing or newly issued invoice state }
+        '202': { description: Invoice processing or provider outcome pending }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { description: Order is not eligible for invoicing }
+        '503': { description: Provider temporarily unavailable; safe retry guidance included }
+  /public/orders/{token}:
+    get:
+      operationId: viewPublicOrder
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, minLength: 43, maxLength: 128 }
+      responses:
+        '200': { description: Minimal payment-order view }
+        '404': { description: Token invalid, expired, revoked, or unknown }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: intelly_session
+  parameters:
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { type: string, minLength: 20, maxLength: 40 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 16, maxLength: 100 }
+  responses:
+    Unauthorized:
+      description: A valid session is required
+    Forbidden:
+      description: Same-origin or authorization check failed
+    ValidationError:
+      description: Input failed field-level validation
+security:
+  - sessionCookie: []

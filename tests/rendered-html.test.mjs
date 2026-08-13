@@ -28,7 +28,7 @@ async function waitForServer(url, server, getOutput) {
   throw new Error(`Next.js did not become ready within 20 seconds.\n${getOutput()}`);
 }
 
-test("renders the Intelly payment-order application shell", async () => {
+test("renders the Intelly Gestor application shell with security headers", async () => {
   const server = spawn(process.execPath, [nextBin, "start", "-p", String(port)], {
     cwd: root,
     stdio: ["ignore", "pipe", "pipe"],
@@ -52,9 +52,9 @@ test("renders the Intelly payment-order application shell", async () => {
 
     const html = await response.text();
     assert.match(html, /<html lang="es">/i);
-    assert.match(html, /Generador de Órdenes de Pago \| Intelly/i);
-    assert.match(html, /intelly-isotipo\.png/i);
-    assert.match(html, /og\.png/i);
+    assert.match(html, /Intelly Gestor/i);
+    assert.equal(response.headers.get("x-frame-options"), "DENY");
+    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
     assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
   } finally {
     server.kill();
@@ -95,28 +95,19 @@ test("preserves existing payment settings while filling migration defaults", asy
   });
 });
 
-test("keeps required client-side order behavior in the product source", async () => {
-  const [page, pdf] = await Promise.all([
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+test("keeps secure order behavior and the reusable PDF foundation", async () => {
+  const [orders, session, pdf] = await Promise.all([
+    readFile(new URL("../src/features/orders/service.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/features/auth/session.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/order-pdf.ts", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /STORAGE_KEYS\.settings/);
-  assert.match(page, /STORAGE_KEYS\.orders/);
-  assert.match(page, /STORAGE_KEYS\.sequence/);
-  assert.match(page, /OP-\$\{year\}-\$\{String\(sequence\)\.padStart\(4, "0"\)\}/);
-  assert.match(page, /Math\.round\(discountedSubtotal \* 0\.19\)/);
-  assert.match(page, /discountPercent/);
-  assert.match(page, /discountReason/);
-  assert.match(page, /Indica el motivo del descuento/);
-  assert.match(page, /Servicio de Hosting/);
-  assert.match(page, /Servicio libre/);
-  assert.match(page, /pdf\.save\(`orden-pago-\$\{target\.number\}\.pdf`\)/);
-  assert.match(page, /Exportar respaldo/);
-  assert.match(page, /Importar respaldo/);
-  assert.match(page, /accept="application\/json,\.json"/);
-  assert.match(page, /parseOrderBackup/);
-  assert.match(page, /createOrderBackup/);
+  assert.match(orders, /publicToken/);
+  assert.match(orders, /idempotencyKey/);
+  assert.match(orders, /transaction/);
+  assert.match(session, /httpOnly/);
+  assert.match(session, /sameSite:\s*"lax"/);
+  assert.match(session, /secure:/);
   assert.match(pdf, /format: "a4"/);
   assert.match(pdf, /autoTable\(doc/);
   assert.match(pdf, /DATOS PARA TRANSFERENCIA|Datos para transferencia/);

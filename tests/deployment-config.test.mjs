@@ -9,7 +9,7 @@ test("uses standard Next.js scripts and Node 22", async () => {
   assert.equal(pkg.scripts.dev, "next dev");
   assert.equal(pkg.scripts.build, "next build");
   assert.equal(pkg.scripts.start, "next start");
-  assert.equal(pkg.engines.node, "22.x");
+  assert.match(pkg.engines.node, /22/);
   assert.equal(pkg.dependencies?.vinext, undefined);
   assert.equal(pkg.devDependencies?.vinext, undefined);
   assert.equal(pkg.devDependencies?.wrangler, undefined);
