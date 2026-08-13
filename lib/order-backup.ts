@@ -171,7 +171,7 @@ export function restoreOrderBackup(
     }
   } catch {
     for (const key of written.reverse()) {
-      const value = previous.get(key);
+      const value = previous.get(key) as string | null;
       try {
         if (value === null) storage.removeItem(key);
         else storage.setItem(key, value);
