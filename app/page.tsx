@@ -38,21 +38,34 @@ const STORAGE = {
   settings: "intelly.op.settings.v1",
   orders: "intelly.op.orders.v1",
   sequence: "intelly.op.sequence.v1",
+  paymentDetails: "intelly.op.payment-details.v1",
+};
+
+const paymentDetails: Partial<CompanySettings> = {
+  companyName: "INTELLY SPA",
+  companyRut: "78.202.703-4",
+  email: "dramirez@intelly.cl",
+  bankName: "Banco de Chile",
+  accountType: "Cuenta Corriente",
+  accountNumber: "00-171-21318-01",
+  accountHolder: "INTELLY SPA",
+  accountRut: "78.202.703-4",
+  transferEmail: "dramirez@intelly.cl",
 };
 
 const blankSettings: CompanySettings = {
-  companyName: "",
-  companyRut: "",
+  companyName: "INTELLY SPA",
+  companyRut: "78.202.703-4",
   businessLine: "",
   address: "",
-  email: "",
+  email: "dramirez@intelly.cl",
   phone: "",
-  bankName: "",
-  accountType: "",
-  accountNumber: "",
-  accountHolder: "",
-  accountRut: "",
-  transferEmail: "",
+  bankName: "Banco de Chile",
+  accountType: "Cuenta Corriente",
+  accountNumber: "00-171-21318-01",
+  accountHolder: "INTELLY SPA",
+  accountRut: "78.202.703-4",
+  transferEmail: "dramirez@intelly.cl",
   paymentTerms: "",
   paymentInstructions: "",
   dueDays: 10,
@@ -110,6 +123,8 @@ const createDraft = (
     customerEmail: "",
     serviceType,
     invoice: true,
+    discountPercent: 0,
+    discountReason: "",
     items: serviceType === "hosting" ? [hostingItem()] : [],
   };
 };
@@ -141,6 +156,19 @@ const getErrors = (order: PaymentOrder, settings: CompanySettings) => {
     errors.push("El vencimiento no puede ser anterior a la emisión.");
   }
   if (!order.items.length) errors.push("Agrega al menos un ítem.");
+  if (
+    !Number.isFinite(Number(order.discountPercent)) ||
+    Number(order.discountPercent) < 0 ||
+    Number(order.discountPercent) > 100
+  ) {
+    errors.push("El descuento debe estar entre 0% y 100%.");
+  }
+  if (
+    Number(order.discountPercent) > 0 &&
+    !order.discountReason?.trim()
+  ) {
+    errors.push("Indica el motivo del descuento.");
+  }
   if (
     order.items.some(
       (item) =>
@@ -185,16 +213,36 @@ export default function Home() {
     const storedSettings = JSON.parse(
       window.localStorage.getItem(STORAGE.settings) || "null",
     ) as CompanySettings | null;
-    const storedOrders = JSON.parse(
+    const storedOrders = (
+      JSON.parse(
       window.localStorage.getItem(STORAGE.orders) || "[]",
-    ) as PaymentOrder[];
+      ) as PaymentOrder[]
+    ).map((saved) => ({
+      ...saved,
+      discountPercent: Number(saved.discountPercent) || 0,
+      discountReason: saved.discountReason || "",
+    }));
     if (storedSettings) {
-      const normalized = { ...blankSettings, ...storedSettings };
+      const shouldApplyPaymentDetails =
+        window.localStorage.getItem(STORAGE.paymentDetails) !== "1";
+      const normalized = {
+        ...blankSettings,
+        ...storedSettings,
+        ...(shouldApplyPaymentDetails ? paymentDetails : {}),
+      };
+      if (shouldApplyPaymentDetails) {
+        window.localStorage.setItem(
+          STORAGE.settings,
+          JSON.stringify(normalized),
+        );
+        window.localStorage.setItem(STORAGE.paymentDetails, "1");
+      }
       // eslint-disable-next-line react-hooks/set-state-in-effect -- This hydrates browser-only localStorage after mount.
       setSettings(normalized);
       setDraftSettings(normalized);
       setOrder(createDraft(normalized.dueDays));
     } else {
+      window.localStorage.setItem(STORAGE.paymentDetails, "1");
       setSettingsOpen(true);
     }
     setOrders(storedOrders);
@@ -215,8 +263,14 @@ export default function Home() {
       ),
     [order.items],
   );
-  const tax = order.invoice ? Math.round(subtotal * 0.19) : 0;
-  const total = subtotal + tax;
+  const discountPercent = Math.min(
+    100,
+    Math.max(0, Number(order.discountPercent) || 0),
+  );
+  const discount = Math.round(subtotal * (discountPercent / 100));
+  const discountedSubtotal = Math.max(0, subtotal - discount);
+  const tax = order.invoice ? Math.round(discountedSubtotal * 0.19) : 0;
+  const total = discountedSubtotal + tax;
 
   const persistOrders = (next: PaymentOrder[]) => {
     setOrders(next);
@@ -381,6 +435,8 @@ export default function Home() {
   const loadOrder = (saved: PaymentOrder) => {
     setOrder({
       ...saved,
+      discountPercent: Number(saved.discountPercent) || 0,
+      discountReason: saved.discountReason || "",
       items: saved.items.map((item) => ({ ...item })),
     });
     setHistoryOpen(false);
@@ -395,6 +451,8 @@ export default function Home() {
       customerRut: saved.customerRut,
       customerEmail: saved.customerEmail,
       invoice: saved.invoice,
+      discountPercent: Number(saved.discountPercent) || 0,
+      discountReason: saved.discountReason || "",
       items: saved.items.map((item) => ({ ...item, id: uid() })),
     });
     setHistoryOpen(false);
@@ -564,6 +622,50 @@ export default function Home() {
                     {!order.invoice && <Check size={15} />} Sin factura
                   </button>
                 </div>
+              </div>
+
+              <div className="discount-row">
+                <label>
+                  <span>Descuento (%)</span>
+                  <div className="percent-input">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={order.discountPercent || ""}
+                      placeholder="0"
+                      onChange={(event) =>
+                        updateOrder(
+                          "discountPercent",
+                          Math.min(
+                            100,
+                            Math.max(0, Number(event.target.value) || 0),
+                          ),
+                        )
+                      }
+                    />
+                    <span>%</span>
+                  </div>
+                </label>
+                <label>
+                  <span>
+                    Motivo del descuento
+                    {discountPercent > 0 && <b> *</b>}
+                  </span>
+                  <input
+                    value={order.discountReason}
+                    disabled={discountPercent === 0}
+                    placeholder={
+                      discountPercent > 0
+                        ? "Ej.: Renovación anual o cliente preferente"
+                        : "Activa un descuento para indicar el motivo"
+                    }
+                    onChange={(event) =>
+                      updateOrder("discountReason", event.target.value)
+                    }
+                  />
+                </label>
               </div>
             </section>
 
@@ -758,6 +860,18 @@ export default function Home() {
                   <span>Subtotal neto</span>
                   <strong>{formatClp(subtotal)}</strong>
                 </div>
+                {discount > 0 && (
+                  <>
+                    <div className="discount-total">
+                      <span>Descuento ({discountPercent}%)</span>
+                      <strong>-{formatClp(discount)}</strong>
+                    </div>
+                    <div>
+                      <span>Neto con descuento</span>
+                      <strong>{formatClp(discountedSubtotal)}</strong>
+                    </div>
+                  </>
+                )}
                 <div>
                   <span>{order.invoice ? "IVA (19%)" : "IVA (sin factura)"}</span>
                   <strong>{formatClp(tax)}</strong>
@@ -767,6 +881,13 @@ export default function Home() {
                   <strong>{formatClp(total)}</strong>
                 </div>
               </div>
+
+              {discount > 0 && (
+                <div className="discount-note">
+                  <strong>Motivo del descuento:</strong>{" "}
+                  <span>{order.discountReason || "Pendiente de completar"}</span>
+                </div>
+              )}
 
               <div className="summary-actions">
                 <button
@@ -1114,9 +1235,21 @@ export default function Home() {
                     (sum, item) => sum + Number(item.amount || 0),
                     0,
                   );
+                  const savedDiscount = Math.round(
+                    savedSubtotal *
+                      (Math.min(
+                        100,
+                        Math.max(0, Number(saved.discountPercent) || 0),
+                      ) /
+                        100),
+                  );
+                  const savedDiscountedSubtotal =
+                    savedSubtotal - savedDiscount;
                   const savedTotal =
-                    savedSubtotal +
-                    (saved.invoice ? Math.round(savedSubtotal * 0.19) : 0);
+                    savedDiscountedSubtotal +
+                    (saved.invoice
+                      ? Math.round(savedDiscountedSubtotal * 0.19)
+                      : 0);
                   return (
                     <article className="history-card" key={saved.id}>
                       <button

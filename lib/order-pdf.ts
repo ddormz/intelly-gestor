@@ -39,6 +39,8 @@ export type PaymentOrder = {
   customerEmail: string;
   serviceType: ServiceType;
   invoice: boolean;
+  discountPercent: number;
+  discountReason: string;
   items: OrderItem[];
   createdAt?: string;
   updatedAt?: string;
@@ -98,8 +100,14 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
     (sum, item) => sum + Math.round(item.amount || 0),
     0,
   );
-  const tax = order.invoice ? Math.round(subtotal * 0.19) : 0;
-  const total = subtotal + tax;
+  const discountPercent = Math.min(
+    100,
+    Math.max(0, Number(order.discountPercent) || 0),
+  );
+  const discount = Math.round(subtotal * (discountPercent / 100));
+  const discountedSubtotal = Math.max(0, subtotal - discount);
+  const tax = order.invoice ? Math.round(discountedSubtotal * 0.19) : 0;
+  const total = discountedSubtotal + tax;
 
   const drawTopBand = () => {
     const bandWidth = pageWidth / 3;
@@ -284,11 +292,13 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
 
   const tableDoc = doc as jsPDF & { lastAutoTable: { finalY: number } };
   y = tableDoc.lastAutoTable.finalY + 8;
-  y = ensureSpace(y, 31);
+  const hasDiscount = discount > 0;
+  const totalsHeight = hasDiscount ? 43 : 28;
+  y = ensureSpace(y, totalsHeight + 3);
 
   const totalsX = pageWidth - margin - 75;
   doc.setFillColor(...colors.pale);
-  doc.roundedRect(totalsX, y, 75, 28, 3, 3, "F");
+  doc.roundedRect(totalsX, y, 75, totalsHeight, 3, 3, "F");
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(...colors.slate);
@@ -296,67 +306,162 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
   doc.text(formatClp(subtotal), pageWidth - margin - 5, y + 7, {
     align: "right",
   });
-  doc.text(order.invoice ? "IVA (19%)" : "IVA (sin factura)", totalsX + 5, y + 14);
-  doc.text(formatClp(tax), pageWidth - margin - 5, y + 14, { align: "right" });
+
+  let totalLineY = y + 13;
+  if (hasDiscount) {
+    doc.setTextColor(180, 55, 48);
+    doc.text(`Descuento (${discountPercent}%)`, totalsX + 5, totalLineY);
+    doc.text(`-${formatClp(discount)}`, pageWidth - margin - 5, totalLineY, {
+      align: "right",
+    });
+
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(6.3);
+    doc.setTextColor(...colors.slate);
+    const fullReason = doc.splitTextToSize(
+      `Motivo: ${order.discountReason.trim()}`,
+      65,
+    ) as string[];
+    const reasonLines = fullReason.slice(0, 2);
+    if (reasonLines.length === 2) {
+      if (fullReason.length > 2) {
+        reasonLines[1] = `${reasonLines[1].replace(/[.\s]+$/, "")}...`;
+      }
+    }
+    reasonLines.forEach((line, index) => {
+      doc.text(line, totalsX + 5, totalLineY + 4 + index * 3.5);
+    });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(...colors.slate);
+    totalLineY += reasonLines.length > 1 ? 11 : 8;
+    doc.text("Neto con descuento", totalsX + 5, totalLineY);
+    doc.text(
+      formatClp(discountedSubtotal),
+      pageWidth - margin - 5,
+      totalLineY,
+      { align: "right" },
+    );
+    totalLineY += 7;
+  }
+
+  doc.text(
+    order.invoice ? "IVA (19%)" : "IVA (sin factura)",
+    totalsX + 5,
+    totalLineY,
+  );
+  doc.text(formatClp(tax), pageWidth - margin - 5, totalLineY, {
+    align: "right",
+  });
   doc.setDrawColor(...colors.line);
-  doc.line(totalsX + 5, y + 18, pageWidth - margin - 5, y + 18);
+  doc.line(
+    totalsX + 5,
+    totalLineY + 4,
+    pageWidth - margin - 5,
+    totalLineY + 4,
+  );
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.setTextColor(...colors.navy);
-  doc.text("TOTAL", totalsX + 5, y + 25);
-  doc.text(formatClp(total), pageWidth - margin - 5, y + 25, {
+  doc.text("TOTAL", totalsX + 5, totalLineY + 11);
+  doc.text(formatClp(total), pageWidth - margin - 5, totalLineY + 11, {
     align: "right",
   });
 
-  y += 37;
-  y = ensureSpace(y, 54);
+  y += totalsHeight + 9;
+  y = ensureSpace(y, 50);
   y = sectionTitle("Datos para transferencia", y);
 
-  doc.setFillColor(...colors.navy);
-  doc.roundedRect(margin, y - 2, contentWidth, 31, 3, 3, "F");
+  doc.setFillColor(...colors.white);
+  doc.setDrawColor(...colors.line);
+  doc.setLineWidth(0.35);
+  const paymentBoxWidth = 88;
+  doc.roundedRect(margin, y - 2, paymentBoxWidth, 28, 3, 3, "FD");
   doc.setFontSize(8.2);
-  doc.setTextColor(...colors.white);
-  doc.setFont("helvetica", "bold");
-  doc.text(safe(settings.bankName), margin + 6, y + 6);
-  doc.setFont("helvetica", "normal");
-  doc.text(
-    `${safe(settings.accountType)} · ${safe(settings.accountNumber)}`,
-    margin + 6,
-    y + 13,
-  );
-  doc.text(
-    `Titular: ${safe(settings.accountHolder)} · RUT ${safe(settings.accountRut, "-")}`,
-    margin + 6,
-    y + 20,
-  );
-  doc.text(
-    `Comprobante: ${safe(settings.transferEmail, settings.email || "-")}`,
-    margin + 6,
-    y + 27,
-  );
+  const paymentLines = [
+    safe(settings.accountHolder, settings.companyName || "INTELLY SPA"),
+    safe(settings.accountRut, settings.companyRut || "-"),
+    safe(settings.bankName),
+    safe(settings.accountType),
+    safe(settings.accountNumber),
+    safe(settings.transferEmail, settings.email || "-"),
+  ];
+  paymentLines.forEach((line, index) => {
+    doc.setFont("helvetica", index === 0 ? "bold" : "normal");
+    doc.setTextColor(...(index === 0 ? colors.navy : colors.slate));
+    doc.text(line, margin + 6, y + 3.6 + index * 4.15);
+  });
 
-  y += 38;
-  y = sectionTitle("Condiciones y plazos", y);
-  const conditions = [
+  y += 29;
+  const conditionParagraphs = [
     safe(settings.paymentTerms, "Pago dentro del plazo indicado."),
     settings.paymentInstructions.trim(),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-  autoTable(doc, {
-    startY: y - 2,
-    margin: { left: margin, right: margin, bottom: 20 },
-    theme: "plain",
-    body: [[conditions]],
-    bodyStyles: {
-      fontSize: 8.2,
-      textColor: colors.slate,
-      cellPadding: 0,
-      lineWidth: 0,
-    },
-    styles: { overflow: "linebreak", cellWidth: "wrap" },
-    didDrawPage: () => drawTopBand(),
-  });
+  ].filter(Boolean);
+  const conditionsTextY = y + 7;
+  const conditionsBottom = pageHeight - 14.5;
+  let conditionsFontSize = 8.2;
+  let conditionsLineHeight = 3.75;
+  let conditionsParagraphGap = 1.5;
+  let wrappedConditions: string[][] = [];
+  let conditionsHeight = 0;
+
+  const measureConditions = () => {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(conditionsFontSize);
+    wrappedConditions = conditionParagraphs.map(
+      (paragraph) => doc.splitTextToSize(paragraph, contentWidth) as string[],
+    );
+    conditionsHeight =
+      wrappedConditions.reduce(
+        (height, lines) => height + lines.length * conditionsLineHeight,
+        0,
+      ) +
+      Math.max(0, wrappedConditions.length - 1) * conditionsParagraphGap;
+  };
+
+  measureConditions();
+  while (
+    conditionsTextY + conditionsHeight > conditionsBottom &&
+    conditionsFontSize > 6
+  ) {
+    conditionsFontSize = Math.max(6, conditionsFontSize - 0.3);
+    conditionsLineHeight = conditionsFontSize * 0.42;
+    conditionsParagraphGap = 0.6;
+    measureConditions();
+  }
+
+  y = sectionTitle("Condiciones y plazos", y);
+  if (conditionsTextY + conditionsHeight > conditionsBottom) {
+    autoTable(doc, {
+      startY: y - 2,
+      margin: { left: margin, right: margin, bottom: 20 },
+      theme: "plain",
+      body: [[conditionParagraphs.join("\n\n")]],
+      bodyStyles: {
+        fontSize: conditionsFontSize,
+        textColor: colors.slate,
+        cellPadding: 0,
+        lineWidth: 0,
+      },
+      styles: { overflow: "linebreak", cellWidth: "wrap" },
+      didDrawPage: () => drawTopBand(),
+    });
+  } else {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(conditionsFontSize);
+    doc.setTextColor(...colors.slate);
+    let conditionLineY = y;
+    wrappedConditions.forEach((paragraph, paragraphIndex) => {
+      paragraph.forEach((line) => {
+        doc.text(line, margin, conditionLineY);
+        conditionLineY += conditionsLineHeight;
+      });
+      if (paragraphIndex < wrappedConditions.length - 1) {
+        conditionLineY += conditionsParagraphGap;
+      }
+    });
+  }
 
   addFooter();
   doc.setProperties({

@@ -50,7 +50,10 @@ test("keeps required client-side order behavior in the product source", async ()
   assert.match(page, /intelly\.op\.orders\.v1/);
   assert.match(page, /intelly\.op\.sequence\.v1/);
   assert.match(page, /OP-\$\{year\}-\$\{String\(sequence\)\.padStart\(4, "0"\)\}/);
-  assert.match(page, /Math\.round\(subtotal \* 0\.19\)/);
+  assert.match(page, /Math\.round\(discountedSubtotal \* 0\.19\)/);
+  assert.match(page, /discountPercent/);
+  assert.match(page, /discountReason/);
+  assert.match(page, /Indica el motivo del descuento/);
   assert.match(page, /Servicio de Hosting/);
   assert.match(page, /Servicio libre/);
   assert.match(page, /pdf\.save\(`orden-pago-\$\{target\.number\}\.pdf`\)/);
@@ -59,4 +62,3 @@ test("keeps required client-side order behavior in the product source", async ()
   assert.match(pdf, /DATOS PARA TRANSFERENCIA|Datos para transferencia/);
   assert.match(pdf, /CONDICIONES Y PLAZOS|Condiciones y plazos/);
 });
-

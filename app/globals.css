@@ -550,6 +550,44 @@ input[readonly] {
   box-shadow: 0 3px 10px rgba(15, 42, 107, 0.09);
 }
 
+.discount-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  margin-top: 18px;
+  padding: 18px;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+}
+
+.discount-row label > span b {
+  color: var(--danger);
+}
+
+.discount-row input:disabled {
+  color: #94a3b8;
+  background: var(--surface-2);
+  cursor: not-allowed;
+}
+
+.percent-input {
+  position: relative;
+}
+
+.percent-input input {
+  padding-right: 36px;
+}
+
+.percent-input > span {
+  position: absolute;
+  top: 13px;
+  right: 14px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .items-heading {
   justify-content: space-between;
 }
@@ -848,6 +886,33 @@ input[readonly] {
   color: var(--navy);
   font-size: 23px;
   letter-spacing: -0.8px;
+}
+
+.totals .discount-total,
+.totals .discount-total strong {
+  color: #b43730;
+}
+
+.discount-note {
+  display: grid;
+  margin: -7px 0 15px;
+  padding: 10px 11px;
+  gap: 3px;
+  border-radius: 9px;
+  color: var(--muted);
+  background: #fff7f6;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.discount-note strong {
+  display: block;
+  color: #9f2420;
+  font-size: 9px;
+}
+
+.discount-note span {
+  display: block;
 }
 
 .summary-actions {
@@ -1351,6 +1416,11 @@ legend {
 
   .invoice-row {
     display: grid;
+  }
+
+  .discount-row {
+    grid-template-columns: 1fr;
+    padding: 14px;
   }
 
   .segmented button {

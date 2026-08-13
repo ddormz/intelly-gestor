@@ -13,22 +13,22 @@ const outputPath = resolve(outputDir, "orden-pago-muestra.pdf");
 const longOutputPath = resolve(outputDir, "orden-pago-muestra-larga.pdf");
 
 const settings: CompanySettings = {
-  companyName: "Intelly SpA",
-  companyRut: "76.000.000-0",
+  companyName: "INTELLY SPA",
+  companyRut: "78.202.703-4",
   businessLine: "Servicios de tecnología y soluciones digitales",
   address: "Santiago, Chile",
-  email: "contacto@intelly.cl",
+  email: "dramirez@intelly.cl",
   phone: "+56 9 0000 0000",
-  bankName: "Banco de ejemplo",
-  accountType: "Cuenta corriente",
-  accountNumber: "0000000000",
-  accountHolder: "Intelly SpA",
-  accountRut: "76.000.000-0",
-  transferEmail: "pagos@intelly.cl",
+  bankName: "Banco de Chile",
+  accountType: "Cuenta Corriente",
+  accountNumber: "00-171-21318-01",
+  accountHolder: "INTELLY SPA",
+  accountRut: "78.202.703-4",
+  transferEmail: "dramirez@intelly.cl",
   paymentTerms:
-    "La activación o renovación del servicio se realizará una vez confirmado el pago. Esta orden tiene vigencia hasta su fecha de vencimiento.",
+    "Posterior al vencimiento de esta orden de pago, se procederá con el corte del servicio.",
   paymentInstructions:
-    "Incluye el número de orden OP-2026-0001 en el comentario de la transferencia.",
+    "Para poder reestablecer el servicio, tendrá un cargo asociado adicional.\nIndicar Referencia al pago el número de orden.",
   dueDays: 10,
 };
 
@@ -43,26 +43,29 @@ const order: PaymentOrder = {
   customerEmail: "finanzas@cliente.cl",
   serviceType: "hosting",
   invoice: true,
+  discountPercent: 20,
+  discountReason: "Cliente preferente por antigüedad",
   items: [
     {
       id: "item-1",
-      name: "Hosting Business",
-      description:
-        "Alojamiento web administrado para cliente.cl · período anual · respaldos diarios y certificado SSL.",
-      amount: 120000,
+      name: "Servicio de Hosting sitio-uno.cl",
+      description: "Renovación de Hosting por un período anual.",
+      amount: 50000,
     },
     {
       id: "item-2",
-      name: "Migración asistida",
-      description:
-        "Migración inicial del sitio, base de datos y cuentas de correo.",
-      amount: 35000,
+      name: "Servicio de Hosting sitio-dos.cl",
+      description: "Renovación de Hosting por un período anual.",
+      amount: 50000,
     },
   ],
 };
 
 const logoDataUrl = `data:image/png;base64,${readFileSync(logoPath).toString("base64")}`;
 const pdf = buildOrderPdf({ order, settings, logoDataUrl });
+if (pdf.getNumberOfPages() !== 1) {
+  throw new Error("La orden compacta de validación debe caber en una página.");
+}
 mkdirSync(outputDir, { recursive: true });
 writeFileSync(outputPath, Buffer.from(pdf.output("arraybuffer")));
 
