@@ -10,6 +10,7 @@ import {
   ChevronRight,
   CircleDollarSign,
   Copy,
+  DatabaseBackup,
   Download,
   FileText,
   History,
@@ -21,9 +22,15 @@ import {
   Save,
   Settings,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createOrderBackup,
+  parseOrderBackup,
+  STORAGE_KEYS,
+} from "../lib/order-backup";
 import { mergePaymentDetails } from "../lib/payment-details";
 import {
   buildOrderPdf,
@@ -34,13 +41,6 @@ import {
   PaymentOrder,
   ServiceType,
 } from "../lib/order-pdf";
-
-const STORAGE = {
-  settings: "intelly.op.settings.v1",
-  orders: "intelly.op.orders.v1",
-  sequence: "intelly.op.sequence.v1",
-  paymentDetails: "intelly.op.payment-details.v1",
-};
 
 const paymentDetails: Partial<CompanySettings> = {
   companyName: "INTELLY SPA",
@@ -92,7 +92,7 @@ const addDays = (date: string, days: number) => {
 const sequenceForYear = (year: number) => {
   if (typeof window === "undefined") return 1;
   const stored = JSON.parse(
-    window.localStorage.getItem(STORAGE.sequence) || "{}",
+    window.localStorage.getItem(STORAGE_KEYS.sequence) || "{}",
   ) as Record<string, number>;
   return (stored[String(year)] || 0) + 1;
 };
@@ -209,14 +209,15 @@ export default function Home() {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const storedSettings = JSON.parse(
-      window.localStorage.getItem(STORAGE.settings) || "null",
+      window.localStorage.getItem(STORAGE_KEYS.settings) || "null",
     ) as CompanySettings | null;
     const storedOrders = (
       JSON.parse(
-      window.localStorage.getItem(STORAGE.orders) || "[]",
+      window.localStorage.getItem(STORAGE_KEYS.orders) || "[]",
       ) as PaymentOrder[]
     ).map((saved) => ({
       ...saved,
@@ -225,7 +226,7 @@ export default function Home() {
     }));
     if (storedSettings) {
       const shouldApplyPaymentDetails =
-        window.localStorage.getItem(STORAGE.paymentDetails) !== "1";
+        window.localStorage.getItem(STORAGE_KEYS.paymentDetails) !== "1";
       const normalized = {
         ...blankSettings,
         ...mergePaymentDetails(
@@ -235,17 +236,17 @@ export default function Home() {
       };
       if (shouldApplyPaymentDetails) {
         window.localStorage.setItem(
-          STORAGE.settings,
+          STORAGE_KEYS.settings,
           JSON.stringify(normalized),
         );
-        window.localStorage.setItem(STORAGE.paymentDetails, "1");
+        window.localStorage.setItem(STORAGE_KEYS.paymentDetails, "1");
       }
       // eslint-disable-next-line react-hooks/set-state-in-effect -- This hydrates browser-only localStorage after mount.
       setSettings(normalized);
       setDraftSettings(normalized);
       setOrder(createDraft(normalized.dueDays));
     } else {
-      window.localStorage.setItem(STORAGE.paymentDetails, "1");
+      window.localStorage.setItem(STORAGE_KEYS.paymentDetails, "1");
       setSettingsOpen(true);
     }
     setOrders(storedOrders);
@@ -277,7 +278,7 @@ export default function Home() {
 
   const persistOrders = (next: PaymentOrder[]) => {
     setOrders(next);
-    window.localStorage.setItem(STORAGE.orders, JSON.stringify(next));
+    window.localStorage.setItem(STORAGE_KEYS.orders, JSON.stringify(next));
   };
 
   const updateOrder = <K extends keyof PaymentOrder>(
@@ -348,7 +349,7 @@ export default function Home() {
       dueDays: Math.max(1, Number(draftSettings.dueDays) || 10),
     };
     setSettings(normalized);
-    window.localStorage.setItem(STORAGE.settings, JSON.stringify(normalized));
+    window.localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(normalized));
     setSettingsOpen(false);
     setToast({ tone: "success", message: "Configuración guardada." });
   };
@@ -357,6 +358,90 @@ export default function Home() {
     setDraftSettings(settings);
     setSettingsOpen(true);
     setMobileMenuOpen(false);
+  };
+
+  const exportBackup = () => {
+    const sequence = JSON.parse(
+      window.localStorage.getItem(STORAGE_KEYS.sequence) || "{}",
+    ) as Record<string, number>;
+    const content = JSON.stringify(
+      createOrderBackup(settings, orders, sequence),
+      null,
+      2,
+    );
+    const blob = new Blob([content], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `respaldo-ordenes-intelly-${today()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setToast({ tone: "success", message: "Respaldo descargado correctamente." });
+  };
+
+  const importBackup = async (file: File) => {
+    let source: string;
+    try {
+      source = await file.text();
+    } catch {
+      setToast({
+        tone: "error",
+        message: "No fue posible importar el respaldo.",
+      });
+      return;
+    }
+
+    let backup: ReturnType<typeof parseOrderBackup>;
+    try {
+      backup = parseOrderBackup(source);
+    } catch (error) {
+      setToast({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "No fue posible importar el respaldo.",
+      });
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `El respaldo contiene ${backup.data.orders.length} órdenes y reemplazará los datos guardados en este navegador. ¿Continuar?`,
+      )
+    ) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      STORAGE_KEYS.settings,
+      JSON.stringify(backup.data.settings),
+    );
+    window.localStorage.setItem(
+      STORAGE_KEYS.orders,
+      JSON.stringify(backup.data.orders),
+    );
+    window.localStorage.setItem(
+      STORAGE_KEYS.sequence,
+      JSON.stringify(backup.data.sequence),
+    );
+    window.localStorage.setItem(STORAGE_KEYS.paymentDetails, "1");
+    setSettings(backup.data.settings);
+    setDraftSettings(backup.data.settings);
+    setOrders(backup.data.orders);
+    setOrder(createDraft(backup.data.settings.dueDays));
+    setSettingsOpen(false);
+    setToast({ tone: "success", message: "Respaldo restaurado correctamente." });
+  };
+
+  const handleBackupFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    try {
+      if (file) await importBackup(file);
+    } finally {
+      event.currentTarget.value = "";
+    }
   };
 
   const commitOrder = () => {
@@ -378,10 +463,10 @@ export default function Home() {
       const year = Number(order.number.split("-")[1]);
       const number = Number(order.number.split("-")[2]);
       const sequence = JSON.parse(
-        window.localStorage.getItem(STORAGE.sequence) || "{}",
+        window.localStorage.getItem(STORAGE_KEYS.sequence) || "{}",
       ) as Record<string, number>;
       sequence[String(year)] = Math.max(sequence[String(year)] || 0, number);
-      window.localStorage.setItem(STORAGE.sequence, JSON.stringify(sequence));
+      window.localStorage.setItem(STORAGE_KEYS.sequence, JSON.stringify(sequence));
     }
 
     const exists = orders.some((saved) => saved.id === committed.id);
@@ -1175,6 +1260,39 @@ export default function Home() {
                       placeholder="Ej.: indicar el número de orden en el comentario de la transferencia."
                     />
                   </label>
+                </div>
+              </fieldset>
+
+              <fieldset className="backup-panel">
+                <legend>
+                  <DatabaseBackup size={18} /> Respaldo local
+                </legend>
+                <p>
+                  Descarga tus ajustes, correlativos e historial para
+                  trasladarlos a otro dominio o navegador.
+                </p>
+                <div className="backup-actions">
+                  <button
+                    className="button button-outline"
+                    type="button"
+                    onClick={exportBackup}
+                  >
+                    <Download size={17} /> Exportar respaldo
+                  </button>
+                  <button
+                    className="button button-outline"
+                    type="button"
+                    onClick={() => backupInputRef.current?.click()}
+                  >
+                    <Upload size={17} /> Importar respaldo
+                  </button>
+                  <input
+                    ref={backupInputRef}
+                    className="visually-hidden"
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={handleBackupFile}
+                  />
                 </div>
               </fieldset>
             </div>

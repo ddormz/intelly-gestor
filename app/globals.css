@@ -1044,6 +1044,46 @@ legend {
   grid-column: 2;
 }
 
+.backup-panel {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.backup-panel legend {
+  margin-bottom: 10px;
+}
+
+.backup-panel p {
+  margin: 0 0 15px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.backup-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.backup-actions .button {
+  justify-content: center;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .modal-footer {
   display: flex;
   align-items: center;
@@ -1506,6 +1546,10 @@ legend {
 
   .wide-field {
     grid-column: 1;
+  }
+
+  .backup-actions {
+    grid-template-columns: 1fr;
   }
 
   .modal-footer {

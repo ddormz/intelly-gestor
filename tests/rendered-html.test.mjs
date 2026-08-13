@@ -80,9 +80,9 @@ test("keeps required client-side order behavior in the product source", async ()
     readFile(new URL("../lib/order-pdf.ts", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /intelly\.op\.settings\.v1/);
-  assert.match(page, /intelly\.op\.orders\.v1/);
-  assert.match(page, /intelly\.op\.sequence\.v1/);
+  assert.match(page, /STORAGE_KEYS\.settings/);
+  assert.match(page, /STORAGE_KEYS\.orders/);
+  assert.match(page, /STORAGE_KEYS\.sequence/);
   assert.match(page, /OP-\$\{year\}-\$\{String\(sequence\)\.padStart\(4, "0"\)\}/);
   assert.match(page, /Math\.round\(discountedSubtotal \* 0\.19\)/);
   assert.match(page, /discountPercent/);
@@ -91,6 +91,11 @@ test("keeps required client-side order behavior in the product source", async ()
   assert.match(page, /Servicio de Hosting/);
   assert.match(page, /Servicio libre/);
   assert.match(page, /pdf\.save\(`orden-pago-\$\{target\.number\}\.pdf`\)/);
+  assert.match(page, /Exportar respaldo/);
+  assert.match(page, /Importar respaldo/);
+  assert.match(page, /accept="application\/json,\.json"/);
+  assert.match(page, /parseOrderBackup/);
+  assert.match(page, /createOrderBackup/);
   assert.match(pdf, /format: "a4"/);
   assert.match(pdf, /autoTable\(doc/);
   assert.match(pdf, /DATOS PARA TRANSFERENCIA|Datos para transferencia/);
