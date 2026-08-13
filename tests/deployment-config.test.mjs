@@ -15,6 +15,15 @@ test("uses standard Next.js scripts and Node 22", async () => {
   assert.equal(pkg.devDependencies?.wrangler, undefined);
 });
 
+test("keeps build and deployment tooling in the production dependency tree", async () => {
+  const lock = JSON.parse(await readFile(new URL("package-lock.json", root), "utf8"));
+  const production = lock.packages[""].dependencies;
+  assert.equal(production["@tailwindcss/postcss"], "latest");
+  assert.equal(production.tailwindcss, "latest");
+  assert.equal(production.typescript, "7.0.2");
+  assert.equal(production.tsx, "latest");
+});
+
 test("does not ship Cloudflare runtime files", async () => {
   for (const path of [
     ".openai/hosting.json",
