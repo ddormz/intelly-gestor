@@ -12,7 +12,7 @@ para incorporar facturación mediante Intelly DTE en una etapa posterior.
 Esta etapa incluye:
 
 - Migrar la configuración de ejecución desde Vinext/Cloudflare a Next.js estándar.
-- Crear el repositorio privado `generador-ordenes-intelly` en GitHub.
+- Publicar el proyecto en el repositorio privado `ddormz/intelly-gestor` de GitHub.
 - Preparar la aplicación para Node.js 22 en Hostinger.
 - Incorporar exportación e importación de un respaldo JSON local.
 - Documentar compilación, ejecución y despliegue.
@@ -42,9 +42,10 @@ actual.
 
 ## Repositorio y despliegue
 
-El código se almacenará en un repositorio privado llamado
-`generador-ordenes-intelly`. Los artefactos generados, dependencias, respaldos y
-archivos temporales permanecerán excluidos mediante `.gitignore`.
+El código se almacenará en el repositorio privado
+`https://github.com/ddormz/intelly-gestor.git`. Los artefactos generados,
+dependencias, respaldos y archivos temporales permanecerán excluidos mediante
+`.gitignore`.
 
 Hostinger se conectará al repositorio privado mediante su integración oficial de
 GitHub. El proyecto se desplegará como una aplicación Next.js de servidor. Los
@@ -110,7 +111,7 @@ Antes de publicar se comprobará:
 - Restauración de configuración, órdenes y correlativos.
 - Persistencia después de recargar el navegador.
 - Ausencia de secretos y artefactos generados en Git.
-- Acceso a la aplicación mediante HTTPS en el dominio elegido.
+- Acceso a la aplicación mediante HTTPS en `gestion.intelly.cl`.
 
 ## Criterios de aceptación
 
