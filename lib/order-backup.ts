@@ -285,7 +285,7 @@ const parseSequence = (value: unknown): Record<string, number> => {
     if (
       !/^\d{4}$/.test(year) ||
       !isFiniteNumber(sequence) ||
-      !Number.isInteger(sequence) ||
+      !Number.isSafeInteger(sequence) ||
       sequence < 0
     ) {
       return invalidSequence();

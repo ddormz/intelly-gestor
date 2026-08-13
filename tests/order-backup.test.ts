@@ -144,6 +144,10 @@ test("rejects malformed settings and sequences", () => {
   const invalidSequence = validBackup();
   invalidSequence.data.sequence = { "2026": 1.5 };
   assert.throws(() => parseOrderBackup(serialize(invalidSequence)), /correlativo válido/);
+
+  const unsafeSequence = validBackup();
+  unsafeSequence.data.sequence = { "2026": 1e21 };
+  assert.throws(() => parseOrderBackup(serialize(unsafeSequence)), /correlativo válido/);
 });
 
 test("rejects malformed orders and committed order items", () => {
