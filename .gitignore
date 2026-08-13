@@ -42,3 +42,6 @@ next-env.d.ts
 /output/
 /tmp/
 /work/
+
+# Operation backups (contain local order data)
+respaldo-ordenes-intelly-*.json

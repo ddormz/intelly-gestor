@@ -25,3 +25,13 @@ test("does not ship Cloudflare runtime files", async () => {
     await assert.rejects(access(new URL(path, root)));
   }
 });
+
+test("documents the production deployment without secrets", async () => {
+  const guide = await readFile(new URL("docs/hostinger-deployment.md", root), "utf8");
+  assert.match(guide, /gestion\.intelly\.cl/);
+  assert.match(guide, /Node\.js 22/);
+  assert.match(guide, /npm run build/);
+  assert.match(guide, /npm run start/);
+  assert.match(guide, /ddormz\/intelly-gestor/);
+  assert.match(guide, /variables de entorno/i);
+});
