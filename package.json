@@ -12,7 +12,7 @@
     "test:backup": "tsx --test tests/order-backup.test.ts",
     "test": "npm run build && node --test tests/deployment-config.test.mjs tests/rendered-html.test.mjs && npm run test:backup",
     "pdf:sample": "tsx scripts/generate-sample-pdf.ts",
-    "lint": "eslint . --ignore-pattern .next"
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {
     "jspdf": "^4.2.1",
