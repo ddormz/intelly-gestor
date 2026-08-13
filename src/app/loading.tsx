@@ -1,0 +1,1 @@
+export default function Loading() { return <div role="status" aria-live="polite" className="grid min-h-72 place-items-center"><div className="text-center"><div className="mx-auto size-9 animate-pulse rounded-full bg-blue-200" /><p className="mt-3 text-sm font-semibold text-slate-600">Cargando información…</p></div></div>; }
