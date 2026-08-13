@@ -5,8 +5,16 @@ import {
   BACKUP_VERSION,
   createOrderBackup,
   parseOrderBackup,
+  restoreOrderBackup,
+  STORAGE_KEYS,
 } from "../lib/order-backup";
 import type { CompanySettings, PaymentOrder } from "../lib/order-pdf";
+
+type StorageAdapter = {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+};
 
 const settings: CompanySettings = {
   companyName: "INTELLY SPA",
@@ -84,6 +92,15 @@ test("normalizes discount fields missing from pre-discount backups", () => {
   assert.equal(parsed.data.orders[0].discountReason, "");
 });
 
+test("normalizes imported sequence to the highest order number for each year", () => {
+  const backup = validBackup();
+  backup.data.sequence = { "2026": 1 };
+
+  assert.deepEqual(parseOrderBackup(serialize(backup)).data.sequence, {
+    "2026": 2,
+  });
+});
+
 test("rejects malformed backup envelopes", () => {
   assert.throws(() => parseOrderBackup("{"), /JSON válido/);
   assert.throws(
@@ -153,4 +170,52 @@ test("rejects malformed orders and committed order items", () => {
   const invalidItem = validBackup();
   invalidItem.data.orders[0].items[0].amount = Number.NaN;
   assert.throws(() => parseOrderBackup(serialize(invalidItem)), /órdenes válidas/);
+});
+
+test("restores previous storage values when a backup write fails partway through", () => {
+  const previous = new Map<string, string>([
+    [STORAGE_KEYS.settings, "previous-settings"],
+    [STORAGE_KEYS.orders, "previous-orders"],
+    [STORAGE_KEYS.sequence, "previous-sequence"],
+    [STORAGE_KEYS.paymentDetails, "previous-marker"],
+  ]);
+  let shouldFail = true;
+  const storage: StorageAdapter = {
+    getItem: (key) => previous.get(key) ?? null,
+    setItem: (key, value) => {
+      if (key === STORAGE_KEYS.sequence && shouldFail) {
+        shouldFail = false;
+        throw new Error("quota exceeded");
+      }
+      previous.set(key, value);
+    },
+    removeItem: (key) => previous.delete(key),
+  };
+
+  assert.throws(() => restoreOrderBackup(storage, validBackup()), /No fue posible restaurar/);
+  assert.deepEqual([...previous.entries()], [
+    [STORAGE_KEYS.settings, "previous-settings"],
+    [STORAGE_KEYS.orders, "previous-orders"],
+    [STORAGE_KEYS.sequence, "previous-sequence"],
+    [STORAGE_KEYS.paymentDetails, "previous-marker"],
+  ]);
+});
+
+test("writes every backup value and the payment-details marker together", () => {
+  const values = new Map<string, string>();
+  const storage: StorageAdapter = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  const backup = validBackup();
+
+  restoreOrderBackup(storage, backup);
+
+  assert.deepEqual([...values.entries()], [
+    [STORAGE_KEYS.settings, JSON.stringify(backup.data.settings)],
+    [STORAGE_KEYS.orders, JSON.stringify(backup.data.orders)],
+    [STORAGE_KEYS.sequence, JSON.stringify(backup.data.sequence)],
+    [STORAGE_KEYS.paymentDetails, "1"],
+  ]);
 });

@@ -29,6 +29,7 @@ import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   createOrderBackup,
   parseOrderBackup,
+  restoreOrderBackup,
   STORAGE_KEYS,
 } from "../lib/order-backup";
 import { mergePaymentDetails } from "../lib/payment-details";
@@ -414,19 +415,18 @@ export default function Home() {
       return;
     }
 
-    window.localStorage.setItem(
-      STORAGE_KEYS.settings,
-      JSON.stringify(backup.data.settings),
-    );
-    window.localStorage.setItem(
-      STORAGE_KEYS.orders,
-      JSON.stringify(backup.data.orders),
-    );
-    window.localStorage.setItem(
-      STORAGE_KEYS.sequence,
-      JSON.stringify(backup.data.sequence),
-    );
-    window.localStorage.setItem(STORAGE_KEYS.paymentDetails, "1");
+    try {
+      restoreOrderBackup(window.localStorage, backup);
+    } catch (error) {
+      setToast({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "No fue posible importar el respaldo.",
+      });
+      return;
+    }
     setSettings(backup.data.settings);
     setDraftSettings(backup.data.settings);
     setOrders(backup.data.orders);

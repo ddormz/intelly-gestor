@@ -22,6 +22,7 @@ export type OrderBackupV1 = {
 };
 
 type JsonObject = Record<string, unknown>;
+type StorageAdapter = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 const settingStringFields = [
   "companyName",
@@ -128,6 +129,59 @@ const copyOrder = (order: PaymentOrder): PaymentOrder => {
 
 const copySequence = (sequence: Record<string, number>): Record<string, number> =>
   Object.fromEntries(Object.entries(sequence).map(([year, value]) => [year, value]));
+
+const normalizeSequenceForOrders = (
+  orders: PaymentOrder[],
+  sequence: Record<string, number>,
+): Record<string, number> => {
+  const normalized = copySequence(sequence);
+
+  for (const order of orders) {
+    const match = /^OP-(\d{4})-(\d+)$/.exec(order.number);
+    if (!match) continue;
+
+    const [, year, value] = match;
+    const number = Number(value);
+    if (Number.isSafeInteger(number)) {
+      normalized[year] = Math.max(normalized[year] || 0, number);
+    }
+  }
+
+  return normalized;
+};
+
+export function restoreOrderBackup(
+  storage: StorageAdapter,
+  backup: OrderBackupV1,
+) {
+  const entries = [
+    [STORAGE_KEYS.settings, JSON.stringify(backup.data.settings)],
+    [STORAGE_KEYS.orders, JSON.stringify(backup.data.orders)],
+    [STORAGE_KEYS.sequence, JSON.stringify(backup.data.sequence)],
+    [STORAGE_KEYS.paymentDetails, "1"],
+  ] as const;
+  const previous = new Map<string, string | null>();
+  const written: string[] = [];
+
+  try {
+    for (const [key] of entries) previous.set(key, storage.getItem(key));
+    for (const [key, value] of entries) {
+      storage.setItem(key, value);
+      written.push(key);
+    }
+  } catch {
+    for (const key of written.reverse()) {
+      const value = previous.get(key);
+      try {
+        if (value === null) storage.removeItem(key);
+        else storage.setItem(key, value);
+      } catch {
+        // Continue attempting to restore every key changed before the failure.
+      }
+    }
+    throw new Error("No fue posible restaurar el respaldo.");
+  }
+}
 
 const isIsoDateString = (value: unknown): value is string => {
   if (typeof value !== "string") return false;
@@ -283,14 +337,19 @@ export function parseOrderBackup(source: string): OrderBackupV1 {
     return invalidSettings();
   }
 
+  const orders = parseOrders(parsed.data.orders);
+
   return {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt: parsed.exportedAt,
     data: {
       settings: parseSettings(parsed.data.settings),
-      orders: parseOrders(parsed.data.orders),
-      sequence: parseSequence(parsed.data.sequence),
+      orders,
+      sequence: normalizeSequenceForOrders(
+        orders,
+        parseSequence(parsed.data.sequence),
+      ),
     },
   };
 }
