@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { mergePaymentDetails } from "../lib/payment-details";
 import {
   buildOrderPdf,
   CompanySettings,
@@ -227,8 +228,10 @@ export default function Home() {
         window.localStorage.getItem(STORAGE.paymentDetails) !== "1";
       const normalized = {
         ...blankSettings,
-        ...storedSettings,
-        ...(shouldApplyPaymentDetails ? paymentDetails : {}),
+        ...mergePaymentDetails(
+          storedSettings,
+          shouldApplyPaymentDetails ? paymentDetails : {},
+        ),
       };
       if (shouldApplyPaymentDetails) {
         window.localStorage.setItem(
