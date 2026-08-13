@@ -225,6 +225,20 @@ const parseItem = (value: unknown): OrderItem => {
   return copyItem(value as OrderItem);
 };
 
+const isValidOrderNumber = (value: unknown): value is string => {
+  if (typeof value !== "string") return false;
+
+  const match = /^OP-\d{4}-(\d+)$/.exec(value);
+  if (!match) return false;
+
+  const sequence = Number(match[1]);
+  return (
+    Number.isSafeInteger(sequence) &&
+    sequence > 0 &&
+    Number.isSafeInteger(sequence + 1)
+  );
+};
+
 const parseOrder = (value: unknown): PaymentOrder => {
   if (!isPlainObject(value)) return invalidOrders();
 
@@ -234,6 +248,7 @@ const parseOrder = (value: unknown): PaymentOrder => {
     value.discountReason === undefined ? "" : value.discountReason;
   if (
     !hasStringFields(value, orderStringFields) ||
+    !isValidOrderNumber(value.number) ||
     typeof value.committed !== "boolean" ||
     typeof value.invoice !== "boolean" ||
     (value.serviceType !== "hosting" && value.serviceType !== "custom") ||

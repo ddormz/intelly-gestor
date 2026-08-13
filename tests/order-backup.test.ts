@@ -151,6 +151,25 @@ test("rejects malformed settings and sequences", () => {
 });
 
 test("rejects malformed orders and committed order items", () => {
+  const invalidOrderFormat = validBackup();
+  invalidOrderFormat.data.orders[0].number = "orden-2026-0002";
+  assert.throws(() => parseOrderBackup(serialize(invalidOrderFormat)), /órdenes válidas/);
+
+  const unsafeOrderNumber = validBackup();
+  unsafeOrderNumber.data.orders[0].number = "OP-2026-9007199254740992";
+  unsafeOrderNumber.data.sequence = { "2026": 1 };
+  assert.throws(() => parseOrderBackup(serialize(unsafeOrderNumber)), /órdenes válidas/);
+
+  const nonIncrementableOrderNumber = validBackup();
+  nonIncrementableOrderNumber.data.orders[0].number = `OP-2026-${Number.MAX_SAFE_INTEGER}`;
+  nonIncrementableOrderNumber.data.sequence = {
+    "2026": Number.MAX_SAFE_INTEGER,
+  };
+  assert.throws(
+    () => parseOrderBackup(serialize(nonIncrementableOrderNumber)),
+    /órdenes válidas/,
+  );
+
   const invalidService = validBackup();
   invalidService.data.orders[0].serviceType = "consulting" as PaymentOrder["serviceType"];
   assert.throws(() => parseOrderBackup(serialize(invalidService)), /órdenes válidas/);
