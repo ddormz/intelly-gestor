@@ -224,7 +224,7 @@ Each action must call `enforceSameOrigin()`, `requireUser()`, parse Zod input, u
 
 - [ ] **Step 4: Build module managers**
 
-Move create forms into client managers, add edit and deactivate/reactivate buttons per row, and use the shared modal. Supply guided placeholders such as `76.123.456-7`, `facturacion@empresa.cl`, `+56 9 1234 5678`, `SERV-001`, `Implementación mensual`, and `150000`.
+Move create forms into client managers, add edit and deactivate/reactivate buttons per row, and use the shared modal. Supply guided placeholders such as `76.123.456-0`, `facturacion@empresa.cl`, `+56 9 1234 5678`, `SERV-001`, `Implementación mensual`, and `150000`.
 
 - [ ] **Step 5: Keep lists full-width and expose status**
 

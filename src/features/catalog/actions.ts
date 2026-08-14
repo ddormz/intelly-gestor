@@ -12,6 +12,8 @@ import { formObject } from "@/lib/validation";
 import { safeError } from "@/lib/errors";
 import type { ActionState } from "@/lib/action-state";
 import { catalogItemSchema, catalogItemStatusSchema, catalogItemUpdateSchema } from "./validation";
+import { parseCatalogCsv } from "./csv";
+import { readCsvFile } from "@/lib/csv";
 
 function validationError(error: { flatten(): { fieldErrors: Record<string, string[]> } }): ActionState {
   return { status: "error", message: "Revisa los campos indicados.", fieldErrors: error.flatten().fieldErrors };
@@ -60,5 +62,33 @@ export async function setCatalogItemStatusAction(_: ActionState, formData: FormD
     await writeAudit({ actorUserId: user.userId, actorType: "user", action: `catalog.${parsed.data.status}`, entityType: "catalog_item", entityId: parsed.data.id });
     revalidatePath("/productos-servicios"); revalidatePath("/ordenes");
     return { status: "success", message: parsed.data.status === "active" ? "Concepto activado." : "Concepto desactivado." };
+  } catch (error) { return failure(error); }
+}
+
+export async function importCatalogAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    await enforceSameOrigin(); const user = await requireUser("admin");
+    const rows = parseCatalogCsv(await readCsvFile(formData.get("file")));
+    const existing = await getDb().select({ id: catalogItems.id, code: catalogItems.code, status: catalogItems.status }).from(catalogItems);
+    const byCode = new Map(existing.map((item) => [item.code.toUpperCase(), item]));
+    let created = 0, updated = 0;
+    await getDb().transaction(async (tx) => {
+      for (const row of rows) {
+        const found = byCode.get(row.code);
+        const data = { ...values(row), updatedAt: new Date() };
+        if (found) {
+          await tx.update(catalogItems).set(data).where(eq(catalogItems.id, found.id));
+          updated++;
+        } else {
+          const id = randomUUID();
+          await tx.insert(catalogItems).values({ id, ...data, status: row.status });
+          byCode.set(row.code, { id, code: row.code, status: row.status });
+          created++;
+        }
+      }
+    });
+    await writeAudit({ actorUserId: user.userId, actorType: "user", action: "catalog.imported", entityType: "catalog_item", metadata: { created, updated } });
+    revalidatePath("/productos-servicios"); revalidatePath("/ordenes");
+    return { status: "success", message: `Importación completada: ${created} creados y ${updated} actualizados.` };
   } catch (error) { return failure(error); }
 }

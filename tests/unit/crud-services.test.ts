@@ -6,7 +6,7 @@ const id = "4fc73a41-4f1f-4bd1-a775-21b93af922d4";
 
 describe("management CRUD validation", () => {
   it("requires a UUID when updating a client", () => {
-    const input = { id: "invalid", kind: "company", taxId: "76.123.456-7", legalName: "Cliente", email: "cliente@example.com" };
+    const input = { id: "invalid", kind: "company", taxId: "76.123.456-0", legalName: "Cliente", email: "cliente@example.com" };
     expect(clientUpdateSchema.safeParse(input).success).toBe(false);
   });
 
