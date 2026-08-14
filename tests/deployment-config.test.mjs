@@ -8,11 +8,16 @@ test("uses standard Next.js scripts and Node 22", async () => {
   const pkg = JSON.parse(await readFile(new URL("package.json", root), "utf8"));
   assert.equal(pkg.scripts.dev, "next dev");
   assert.equal(pkg.scripts.build, "next build");
-  assert.equal(pkg.scripts.start, "next start");
   assert.match(pkg.engines.node, /22/);
   assert.equal(pkg.dependencies?.vinext, undefined);
   assert.equal(pkg.devDependencies?.vinext, undefined);
   assert.equal(pkg.devDependencies?.wrangler, undefined);
+});
+
+test("runs the secure bootstrap through the standard production start command", async () => {
+  const pkg = JSON.parse(await readFile(new URL("package.json", root), "utf8"));
+  assert.equal(pkg.scripts.start, "tsx scripts/start-production.ts");
+  await access(new URL("scripts/start-production.ts", root));
 });
 
 test("keeps build and deployment tooling in the production dependency tree", async () => {

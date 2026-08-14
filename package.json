@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "tsx scripts/start-production.ts",
     "lint": "oxlint . --deny-warnings",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
