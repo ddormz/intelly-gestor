@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Download, FileDown, Pencil, Power, Upload, UserPlus } from "lucide-react";
+import { Download, FileDown, KeyRound, Pencil, Power, Upload, UserPlus } from "lucide-react";
 import { ActionModal, Badge, Card, Field, Input, PageHeader, TableShell } from "@/components/ui";
 import { createUserAction, importUsersAction, setUserStatusAction, updateUserAction } from "@/features/auth/admin-actions";
+import { sendUserRecoveryAction } from "@/features/auth/password-reset-actions";
 
 type UserItem = { id: string; name: string; email: string; role: "admin" | "operator"; status: "active" | "disabled" | "locked" };
 
@@ -24,7 +25,11 @@ export function UserManager({ items, currentUserId }: { items: UserItem[]; curre
     <PageHeader title="Usuarios" description="Administra cuentas internas, roles, accesos y recuperación de contraseña." action={actions} />
     <Card className="min-w-0"><TableShell mobileCards><thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th className="text-right">Acciones</th></tr></thead><tbody>{items.map((item) => <tr key={item.id}>
       <td data-label="Usuario"><strong className="text-[var(--brand-deep)]">{item.name}</strong><br/><span className="text-xs text-[var(--color-muted-foreground)]">{item.email}</span></td><td data-label="Rol" className="capitalize">{item.role === "admin" ? "Administrador" : "Operador"}</td><td data-label="Estado"><Badge status={item.status === "active" ? "paid" : item.status === "locked" ? "pending" : "rejected"}>{item.status === "active" ? "Activo" : item.status === "locked" ? "Bloqueado" : "Desactivado"}</Badge></td>
-      <td data-label="Acciones"><div className="flex flex-wrap justify-end gap-2"><ActionModal triggerLabel="Editar" triggerIcon={<Pencil size={15} />} variant="secondary" title="Editar usuario" description={`Actualiza nombre y rol de ${item.email}.`} submitLabel="Guardar cambios" action={updateUserAction}>{(state) => <UserFields item={item} errors={state.fieldErrors} />}</ActionModal>{item.id !== currentUserId ? <ActionModal triggerLabel={item.status === "active" ? "Desactivar" : "Activar"} triggerIcon={<Power size={15} />} variant={item.status === "active" ? "danger" : "secondary"} title={item.status === "active" ? "Desactivar usuario" : "Activar usuario"} description="Al desactivar se revocarán todas las sesiones activas." submitLabel={item.status === "active" ? "Desactivar" : "Activar"} action={setUserStatusAction}>{() => <><input type="hidden" name="id" value={item.id}/><input type="hidden" name="status" value={item.status === "active" ? "disabled" : "active"}/><p className="text-sm text-[var(--color-muted-foreground)]">Confirma el cambio para <strong>{item.name}</strong>.</p></>}</ActionModal> : null}</div></td>
+      <td data-label="Acciones"><div className="flex flex-wrap justify-end gap-2">
+        <ActionModal triggerLabel="Editar" triggerIcon={<Pencil size={15} />} variant="secondary" title="Editar usuario" description={`Actualiza nombre y rol de ${item.email}.`} submitLabel="Guardar cambios" action={updateUserAction}>{(state) => <UserFields item={item} errors={state.fieldErrors} />}</ActionModal>
+        {item.status === "active" ? <ActionModal triggerLabel="Enviar recuperación" triggerIcon={<KeyRound size={15} />} variant="secondary" title="Enviar recuperación" description="Se enviará un enlace de un solo uso al correo registrado." submitLabel="Enviar enlace" action={sendUserRecoveryAction}>{() => <><input type="hidden" name="email" value={item.email}/><p className="text-sm text-[var(--color-muted-foreground)]">El enlace se enviará a <strong>{item.email}</strong> y vencerá en 30 minutos.</p></>}</ActionModal> : null}
+        {item.id !== currentUserId ? <ActionModal triggerLabel={item.status === "active" ? "Desactivar" : "Activar"} triggerIcon={<Power size={15} />} variant={item.status === "active" ? "danger" : "secondary"} title={item.status === "active" ? "Desactivar usuario" : "Activar usuario"} description="Al desactivar se revocarán todas las sesiones activas." submitLabel={item.status === "active" ? "Desactivar" : "Activar"} action={setUserStatusAction}>{() => <><input type="hidden" name="id" value={item.id}/><input type="hidden" name="status" value={item.status === "active" ? "disabled" : "active"}/><p className="text-sm text-[var(--color-muted-foreground)]">Confirma el cambio para <strong>{item.name}</strong>.</p></>}</ActionModal> : null}
+      </div></td>
     </tr>)}</tbody></TableShell></Card>
   </div>;
 }
