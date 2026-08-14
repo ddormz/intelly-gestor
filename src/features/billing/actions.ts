@@ -28,7 +28,7 @@ export async function issueInvoiceAction(_: ActionState, formData: FormData): Pr
   if (!existing) await getDb().insert(invoices).values({ id: invoiceId, paymentOrderId: orderId, status: "processing", requestHash });
   const attemptId = randomUUID();
   await getDb().insert(integrationAttempts).values({ id: attemptId, integration: "intellydte", operation: "issue_invoice", aggregateType: "invoice", aggregateId: invoiceId, idempotencyKey: key, correlationId, attemptNumber: 1, status: "processing", requestHash });
-  const result = await getIntellyDteGateway().issueInvoice({ idempotencyKey: key, correlationId, orderNumber: order.number, total: order.total, recipientTaxId: order.clientTaxId ?? "" });
+  const result = await (await getIntellyDteGateway()).issueInvoice({ idempotencyKey: key, correlationId, orderNumber: order.number, total: order.total, recipientTaxId: order.clientTaxId ?? "" });
   if (result.kind === "issued") {
     await getDb().transaction(async (tx) => {
       await tx.update(invoices).set({ status: "issued", providerDocumentId: result.providerDocumentId, folio: result.folio, issuedAt: new Date(result.issuedAt) }).where(eq(invoices.id, invoiceId));

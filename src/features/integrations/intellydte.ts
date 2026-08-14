@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { getEnv } from "@/lib/env";
+import { getIntellyDteConfig } from "./config-service";
 
 export type IssueInvoiceCommand = {
   idempotencyKey: string;
@@ -39,6 +40,23 @@ class ClosedHttpGateway implements IntellyDteGateway {
   async getInvoiceStatus(): Promise<InvoiceResult> { return this.unavailable(); }
 }
 
-export function getIntellyDteGateway(): IntellyDteGateway {
-  return getEnv().INTELLYDTE_MODE === "fake" ? new FakeIntellyDteGateway() : new ClosedHttpGateway();
+class ConfiguredHttpGateway extends ClosedHttpGateway {
+  constructor(private readonly config: { baseUrl: string; apiKey: string }) { super(); }
+  async health() {
+    const checkedAt = new Date().toISOString();
+    try {
+      const response = await fetch(this.config.baseUrl, { method: "GET", headers: { Authorization: `Bearer ${this.config.apiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(getEnv().INTELLYDTE_TIMEOUT_MS), cache: "no-store" });
+      if (response.status === 401 || response.status === 403) return { ok: false, checkedAt, safeMessage: "IntellyDTE rechazó la API Key" };
+      if (response.status >= 500) return { ok: false, checkedAt, safeMessage: "IntellyDTE no está disponible" };
+      return { ok: true, checkedAt, safeMessage: "Base URL y credencial respondieron" };
+    } catch {
+      return { ok: false, checkedAt, safeMessage: "No fue posible conectar con la Base URL" };
+    }
+  }
+}
+
+export async function getIntellyDteGateway(): Promise<IntellyDteGateway> {
+  if (getEnv().INTELLYDTE_MODE === "fake") return new FakeIntellyDteGateway();
+  const config = await getIntellyDteConfig();
+  return config ? new ConfiguredHttpGateway(config) : new ClosedHttpGateway();
 }
