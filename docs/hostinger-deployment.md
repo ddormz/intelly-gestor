@@ -36,6 +36,28 @@ Para migrar datos, exportar localmente, abrir la aplicación online e importar e
 Configura en hPanel `DATABASE_URL`, `DB_POOL_LIMIT`, `SESSION_COOKIE_NAME`, `APP_ORIGIN` e
 IntellyDTE. Para el primer despliegue agrega temporalmente:
 
+Para la configuración cifrada y la recuperación por correo agrega también:
+
+```text
+APP_URL=https://gestion.intelly.cl
+CREDENTIALS_ENCRYPTION_KEY=<clave base64 de 32 bytes>
+SMTP_HOST=smtp.hostinger.com
+SMTP_PORT=465
+SMTP_USER=no-reply@intelly.cl
+SMTP_PASSWORD=<contraseña de la casilla>
+SMTP_FROM=Intelly Gestor <no-reply@intelly.cl>
+```
+
+Genera `CREDENTIALS_ENCRYPTION_KEY` una sola vez y consérvala estable entre despliegues:
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+Usa el puerto `465` para TLS implícito. Si la cuenta de Hostinger exige STARTTLS, cambia únicamente
+`SMTP_PORT` a `587`. No reutilices la contraseña SMTP como clave de cifrado. El bootstrap de
+producción aplicará automáticamente las tablas nuevas durante el despliegue.
+
 ```text
 BOOTSTRAP_ADMIN_ENABLED=true
 ADMIN_EMAIL=<correo del administrador>

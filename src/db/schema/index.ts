@@ -33,6 +33,19 @@ export const users = mysqlTable("users", {
   ...timestamps,
 }, (table) => [uniqueIndex("users_email_uq").on(table.email)]);
 
+export const integrationConfigs = mysqlTable("integration_configs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  integration: varchar("integration", { length: 50 }).notNull(),
+  baseUrl: varchar("base_url", { length: 500 }).notNull(),
+  apiKeyCiphertext: text("api_key_ciphertext").notNull(),
+  apiKeyIv: varchar("api_key_iv", { length: 32 }).notNull(),
+  apiKeyAuthTag: varchar("api_key_auth_tag", { length: 32 }).notNull(),
+  apiKeyLastFour: varchar("api_key_last_four", { length: 4 }).notNull(),
+  status: mysqlEnum("status", ["active", "disabled"]).notNull().default("active"),
+  updatedBy: varchar("updated_by", { length: 36 }).notNull().references(() => users.id),
+  ...timestamps,
+}, (table) => [uniqueIndex("integration_configs_name_uq").on(table.integration)]);
+
 export const sessions = mysqlTable("sessions", {
   id: varchar("id", { length: 36 }).primaryKey(),
   userId: varchar("user_id", { length: 36 }).notNull().references(() => users.id),
@@ -53,6 +66,30 @@ export const loginAttempts = mysqlTable("login_attempts", {
   succeeded: boolean("succeeded").notNull(),
   occurredAt: datetime("occurred_at", { mode: "date" }).notNull().default(sql`(now())`),
 }, (table) => [index("login_email_time_idx").on(table.emailHash, table.occurredAt), index("login_ip_time_idx").on(table.ipHash, table.occurredAt)]);
+
+export const passwordResetTokens = mysqlTable("password_reset_tokens", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  userId: varchar("user_id", { length: 36 }).notNull().references(() => users.id),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+  expiresAt: datetime("expires_at", { mode: "date" }).notNull(),
+  usedAt: datetime("used_at", { mode: "date" }),
+  requestedIpHash: varchar("requested_ip_hash", { length: 64 }).notNull(),
+  createdAt: datetime("created_at", { mode: "date" }).notNull().default(sql`(now())`),
+}, (table) => [
+  uniqueIndex("password_reset_tokens_hash_uq").on(table.tokenHash),
+  index("password_reset_tokens_user_idx").on(table.userId, table.createdAt),
+  index("password_reset_tokens_expiry_idx").on(table.expiresAt),
+]);
+
+export const passwordResetRequests = mysqlTable("password_reset_requests", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  emailHash: varchar("email_hash", { length: 64 }).notNull(),
+  ipHash: varchar("ip_hash", { length: 64 }).notNull(),
+  createdAt: datetime("created_at", { mode: "date" }).notNull().default(sql`(now())`),
+}, (table) => [
+  index("password_reset_requests_email_idx").on(table.emailHash, table.createdAt),
+  index("password_reset_requests_ip_idx").on(table.ipHash, table.createdAt),
+]);
 
 export const clients = mysqlTable("clients", {
   id: varchar("id", { length: 36 }).primaryKey(),

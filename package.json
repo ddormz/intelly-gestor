@@ -28,12 +28,15 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "csv-parse": "^7.0.2",
+    "csv-stringify": "^6.8.3",
     "drizzle-orm": "latest",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "latest",
     "mysql2": "latest",
     "next": "latest",
+    "nodemailer": "^9.0.5",
     "react": "latest",
     "react-dom": "latest",
     "recharts": "latest",
@@ -45,6 +48,7 @@
   },
   "devDependencies": {
     "@playwright/test": "latest",
+    "@types/nodemailer": "^8.0.1",
     "drizzle-kit": "latest",
     "oxlint": "^1.78.0",
     "vitest": "latest"
