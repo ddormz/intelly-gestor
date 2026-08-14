@@ -1,15 +1,8 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { parseBootstrapAdminConfig } from "../src/bootstrap/config";
-import { createMySqlBootstrap } from "../src/bootstrap/mysql";
-import { runStartupBootstrap } from "../src/bootstrap/startup";
+import { runProductionBootstrap } from "../src/bootstrap/production";
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL is required.");
-
-const config = parseBootstrapAdminConfig(process.env);
-const adapter = await createMySqlBootstrap(databaseUrl);
-await runStartupBootstrap(config, adapter);
+await runProductionBootstrap();
 
 const nextBin = fileURLToPath(new URL("../node_modules/next/dist/bin/next", import.meta.url));
 const child = spawn(process.execPath, [nextBin, "start"], {

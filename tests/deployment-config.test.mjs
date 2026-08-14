@@ -22,6 +22,30 @@ test("runs the secure bootstrap through the standard production start command", 
   await access(new URL("scripts/start-production.ts", root));
 });
 
+test("runs the secure bootstrap before managed production builds", async () => {
+  const pkg = JSON.parse(await readFile(new URL("package.json", root), "utf8"));
+  assert.equal(pkg.scripts.prebuild, "tsx scripts/bootstrap-build.ts");
+
+  const tsx = fileURLToPath(new URL("node_modules/tsx/dist/cli.mjs", root));
+  const script = fileURLToPath(new URL("scripts/bootstrap-build.ts", root));
+  const env = { ...process.env };
+  for (const name of [
+    "DATABASE_URL",
+    "BOOTSTRAP_ADMIN_ENABLED",
+    "ADMIN_EMAIL",
+    "ADMIN_NAME",
+    "ADMIN_PASSWORD",
+  ]) delete env[name];
+
+  const result = spawnSync(process.execPath, [tsx, script], {
+    cwd: fileURLToPath(root),
+    encoding: "utf8",
+    env,
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Database build bootstrap skipped/);
+});
+
 test("keeps build and deployment tooling in the production dependency tree", async () => {
   const lock = JSON.parse(await readFile(new URL("package-lock.json", root), "utf8"));
   const production = lock.packages[""].dependencies;
