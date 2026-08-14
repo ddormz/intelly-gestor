@@ -21,8 +21,9 @@ export function maskApiKey(value: string): string {
 export function validateIntellyDteBaseUrl(value: string): string {
   let url: URL;
   try { url = new URL(value); } catch { throw new AppError("INVALID_BASE_URL", "Ingresa una Base URL válida."); }
-  if (url.protocol !== "https:" || !(url.hostname === "intelly.cl" || url.hostname.endsWith(".intelly.cl"))) {
-    throw new AppError("INVALID_BASE_URL", "La Base URL debe usar HTTPS y pertenecer a intelly.cl.");
+  const allowedHost = url.hostname === "intelly.cl" || url.hostname.endsWith(".intelly.cl") || url.hostname === "intellydte.cl" || url.hostname.endsWith(".intellydte.cl");
+  if (url.protocol !== "https:" || !allowedHost) {
+    throw new AppError("INVALID_BASE_URL", "La Base URL debe usar HTTPS y pertenecer a Intelly.");
   }
   return url.toString().replace(/\/$/, "");
 }

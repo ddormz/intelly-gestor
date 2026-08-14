@@ -11,6 +11,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  experimental: { serverActions: { bodySizeLimit: "2mb" } },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

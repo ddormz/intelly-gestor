@@ -14,7 +14,7 @@ export default async function PublicOrderPage({ params }: { params: Promise<{ pu
 
   return <main className="min-h-screen bg-[var(--color-background)] p-4 sm:p-8">
     <div className="mx-auto max-w-2xl">
-      <div className="mb-6 flex items-center justify-between gap-4"><BrandLogo priority /><span className="safe-pill"><LockKeyhole size={14} />Enlace seguro</span></div>
+      <div className="mb-6 flex items-center justify-between gap-4"><BrandLogo priority /><span className="secure-link-badge"><LockKeyhole size={14} />Enlace seguro</span></div>
       <Card className="brand-card p-6 sm:p-8">
         <div className="flex flex-col justify-between gap-4 border-b border-[var(--color-border)] pb-6 sm:flex-row sm:items-start"><div><p className="font-mono text-xs text-[var(--color-muted-foreground)]">{order.number}</p><h1 className="mt-2 text-2xl font-bold text-[var(--brand-deep)]">Orden de pago</h1><p className="mt-1 text-[var(--color-muted-foreground)]">Emitida para {order.clientName}</p></div><div className="grid size-12 place-items-center rounded-full bg-[rgb(18_128_92_/_0.08)] text-[var(--color-success)]"><CheckCircle2 /></div></div>
         <div className="py-8 text-center"><p className="text-sm font-semibold text-[var(--color-muted-foreground)]">Total a pagar</p><p className="mt-2 text-4xl font-bold text-[var(--brand-royal)] sm:text-5xl">{formatClpAmount(Number(order.total))}</p><div className="mt-4"><Badge status={order.status}>{getStatusLabel(order.status)}</Badge></div></div>

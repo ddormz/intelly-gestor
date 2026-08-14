@@ -20,6 +20,7 @@ describe("encrypted integration configuration", () => {
   it("masks API keys and accepts only HTTPS Intelly hosts", () => {
     expect(maskApiKey("api-secret-1234")).toBe("••••1234");
     expect(validateIntellyDteBaseUrl("https://api.intelly.cl/v1")).toBe("https://api.intelly.cl/v1");
+    expect(validateIntellyDteBaseUrl("https://api.intellydte.cl/v1")).toBe("https://api.intellydte.cl/v1");
     expect(() => validateIntellyDteBaseUrl("http://localhost:3000")).toThrow();
     expect(() => validateIntellyDteBaseUrl("https://example.com")).toThrow();
   });
