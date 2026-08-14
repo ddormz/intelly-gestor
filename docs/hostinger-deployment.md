@@ -31,9 +31,25 @@ La aplicación conserva ajustes, historial y correlativos en el navegador. Antes
 
 Para migrar datos, exportar localmente, abrir la aplicación online e importar el archivo. La importación sustituye los datos de ese navegador; antes de confirmarla, validar el conteo de órdenes y el próximo correlativo para evitar duplicados o saltos. Los respaldos `respaldo-ordenes-intelly-*.json` no se deben adjuntar a incidencias ni almacenar en el repositorio.
 
-## Variables de entorno y futuro DTE
+## Variables de entorno y bootstrap inicial
 
-Actualmente no hay variables de entorno requeridas en producción. Si se añade integración DTE, las credenciales y certificados se configuran exclusivamente como variables de entorno de Hostinger. Nunca usar prefijos `NEXT_PUBLIC_*`, Git, almacenamiento del navegador, capturas de pantalla ni mensajes de soporte para guardar o compartir secretos. Documentar solo los nombres de las variables necesarias, no sus valores.
+Configura en hPanel `DATABASE_URL`, `DB_POOL_LIMIT`, `SESSION_COOKIE_NAME`, `APP_ORIGIN` e
+IntellyDTE. Para el primer despliegue agrega temporalmente:
+
+```text
+BOOTSTRAP_ADMIN_ENABLED=true
+ADMIN_EMAIL=<correo del administrador>
+ADMIN_NAME=<nombre del administrador>
+ADMIN_PASSWORD=<contraseña única de 12 a 128 caracteres>
+```
+
+El arranque obtiene un bloqueo MySQL, aplica las migraciones y crea el administrador solo si no
+existe. Si el mismo correo ya corresponde a un administrador activo, no cambia su contraseña. Si
+corresponde a otro rol o estado, el arranque falla sin elevar privilegios.
+
+Tras confirmar que `/api/health` informa `database: available` y que el login funciona, cambia
+`BOOTSTRAP_ADMIN_ENABLED=false`, elimina todas las variables `ADMIN_*` y redepliega. Nunca guardes
+estos valores en Git, logs, capturas de pantalla ni mensajes de soporte.
 
 ## Rollback
 

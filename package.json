@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "tsx scripts/start-production.ts",
     "lint": "oxlint . --deny-warnings",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -23,6 +23,10 @@
   },
   "dependencies": {
     "@node-rs/argon2": "latest",
+    "@tailwindcss/postcss": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
     "drizzle-orm": "latest",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
@@ -33,22 +37,15 @@
     "react-dom": "latest",
     "recharts": "latest",
     "server-only": "latest",
+    "tailwindcss": "latest",
+    "tsx": "latest",
+    "typescript": "7.0.2",
     "zod": "latest"
   },
   "devDependencies": {
     "@playwright/test": "latest",
-    "@tailwindcss/postcss": "latest",
-    "@testing-library/jest-dom": "latest",
-    "@testing-library/react": "latest",
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
     "drizzle-kit": "latest",
-    "jsdom": "latest",
     "oxlint": "^1.78.0",
-    "tailwindcss": "latest",
-    "tsx": "latest",
-    "typescript": "7.0.2",
     "vitest": "latest"
   }
 }
