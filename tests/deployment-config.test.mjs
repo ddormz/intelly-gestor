@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 const root = new URL("../", import.meta.url);
 
@@ -27,6 +29,19 @@ test("keeps build and deployment tooling in the production dependency tree", asy
   assert.equal(production.tailwindcss, "latest");
   assert.equal(production.typescript, "7.0.2");
   assert.equal(production.tsx, "latest");
+});
+
+test("keeps development-only TypeScript inputs out of the production program", async () => {
+  const tsc = fileURLToPath(new URL("node_modules/typescript/lib/tsc.js", root));
+  const result = spawnSync(process.execPath, [tsc, "--noEmit", "--listFiles", "--pretty", "false"], {
+    cwd: fileURLToPath(root),
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.doesNotMatch(
+    result.stdout,
+    /[\\/](tests[\\/]|vitest\.config\.ts|drizzle\.config\.ts|playwright\.config\.ts)/,
+  );
 });
 
 test("does not ship Cloudflare runtime files", async () => {

@@ -37,6 +37,10 @@
   ],
   "exclude": [
     "node_modules",
-    "examples"
+    "examples",
+    "tests",
+    "drizzle.config.ts",
+    "playwright.config.ts",
+    "vitest.config.ts"
   ]
 }
