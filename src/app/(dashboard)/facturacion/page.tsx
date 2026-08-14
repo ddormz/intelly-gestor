@@ -1,14 +1,8 @@
-import { Badge, Card, EmptyState, PageHeader, SubmitButton, TableShell } from "@/components/ui";
-import { issueInvoiceAction } from "@/features/billing/actions";
 import { listInvoices, listPaidOrdersWithoutInvoice } from "@/features/billing/service";
-import { formatClpAmount } from "@/lib/money";
-import { getStatusLabel } from "@/lib/presentation";
+import { requireUser } from "@/features/auth/session";
+import { BillingManager } from "./billing-manager";
 
 export default async function BillingPage() {
-  const [items, ready] = await Promise.all([listInvoices(), listPaidOrdersWithoutInvoice()]);
-  return <div className="space-y-6">
-    <PageHeader title="Facturación" description="Emite una factura por orden pagada y revisa el resultado normalizado de IntellyDTE." />
-    {ready.length ? <Card className="brand-card"><h2 className="mb-5 text-lg font-bold text-[var(--brand-deep)]">Listas para facturar</h2><div className="grid gap-3">{ready.map((order) => <div key={order.id} className="flex flex-col justify-between gap-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-background-soft)] p-4 sm:flex-row sm:items-center"><div><p className="font-mono text-xs text-[var(--color-muted-foreground)]">{order.number}</p><p className="mt-1 font-semibold text-[var(--brand-deep)]">{order.clientName}</p><p className="mt-1 text-sm text-[var(--color-muted-foreground)]">{formatClpAmount(Number(order.total))}</p></div><form action={issueInvoiceAction}><input type="hidden" name="orderId" value={order.id} /><SubmitButton pendingLabel="Emitiendo factura…">Emitir factura</SubmitButton></form></div>)}</div></Card> : null}
-    <Card className="min-w-0"><h2 className="mb-5 text-lg font-bold text-[var(--brand-deep)]">Documentos</h2>{items.length ? <TableShell mobileCards><thead><tr><th>Orden</th><th>Cliente</th><th>Estado</th><th>Folio</th><th className="text-right">Total</th></tr></thead><tbody>{items.map((item) => <tr key={item.id}><td data-label="Orden" className="font-mono text-xs">{item.orderNumber}</td><td data-label="Cliente" className="font-medium">{item.clientName}</td><td data-label="Estado"><Badge status={item.status}>{getStatusLabel(item.status)}</Badge></td><td data-label="Folio">{item.folio ?? "—"}</td><td data-label="Total" className="text-right font-semibold">{formatClpAmount(Number(item.total))}</td></tr>)}</tbody></TableShell> : <EmptyState title="Aún no hay facturas" copy="Las órdenes pagadas aparecerán aquí listas para emitir." />}</Card>
-  </div>;
+  const [items, ready, user] = await Promise.all([listInvoices(), listPaidOrdersWithoutInvoice(), requireUser()]);
+  return <BillingManager canImport={user.role === "admin"} items={items.map((item) => ({ id: item.id, orderNumber: item.orderNumber, clientName: item.clientName, total: item.total, status: item.status, folio: item.folio }))} ready={ready} />;
 }

@@ -6,6 +6,8 @@ import { AppError } from "@/lib/errors";
 import { hashToken, randomToken } from "@/lib/security";
 import { assertTransition, calculateOrder } from "./domain";
 import { clp } from "@/lib/money";
+import type { DraftOrderCsvRow } from "./csv";
+import { normalizeRutKey } from "@/features/clients/csv";
 
 export async function listOrders() {
   return getDb().select({ id: paymentOrders.id, number: paymentOrders.number, status: paymentOrders.status, total: paymentOrders.total, createdAt: paymentOrders.createdAt, clientName: clients.legalName })
@@ -23,6 +25,32 @@ export async function createOrder(input: { clientId: string; catalogItemId: stri
     await tx.insert(paymentOrderLines).values({ id: randomUUID(), paymentOrderId: id, catalogItemId: item.id, code: item.code, description: item.name, quantity: String(input.quantity), unitPrice: item.unitPrice, taxRate: item.taxRate, subtotal: String(calculated.subtotal.minor), taxAmount: String(calculated.tax.minor), total: String(calculated.total.minor) });
   });
   return id;
+}
+
+export async function importDraftOrders(rows: DraftOrderCsvRow[], userId: string): Promise<number> {
+  const [clientRows, catalogRows] = await Promise.all([
+    getDb().select({ id: clients.id, taxId: clients.taxId }).from(clients).where(eq(clients.status, "active")),
+    getDb().select().from(catalogItems).where(eq(catalogItems.status, "active")),
+  ]);
+  const clientsByRut = new Map(clientRows.filter((item) => item.taxId).map((item) => [normalizeRutKey(item.taxId!), item]));
+  const catalogByCode = new Map(catalogRows.map((item) => [item.code.toUpperCase(), item]));
+  const resolved = rows.map((row, index) => {
+    const client = clientsByRut.get(normalizeRutKey(row.clientTaxId));
+    if (!client) throw new AppError("CSV_CLIENT_NOT_FOUND", `Fila ${index + 2}: el cliente no existe o está inactivo.`);
+    const item = catalogByCode.get(row.catalogCode);
+    if (!item) throw new AppError("CSV_ITEM_NOT_FOUND", `Fila ${index + 2}: el producto o servicio no existe o está inactivo.`);
+    return { client, item, quantity: row.quantity };
+  });
+  await getDb().transaction(async (tx) => {
+    for (const row of resolved) {
+      const calculated = calculateOrder([{ description: row.item.name, quantity: row.quantity, unitPrice: clp(BigInt(row.item.unitPrice.split(".")[0])), taxRate: Number(row.item.taxRate) }]);
+      const id = randomUUID();
+      const number = `OP-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${id.slice(0, 6).toUpperCase()}`;
+      await tx.insert(paymentOrders).values({ id, number, clientId: row.client.id, status: "draft", currency: "CLP", subtotal: String(calculated.subtotal.minor), taxTotal: String(calculated.tax.minor), total: String(calculated.total.minor), createdBy: userId, updatedBy: userId });
+      await tx.insert(paymentOrderLines).values({ id: randomUUID(), paymentOrderId: id, catalogItemId: row.item.id, code: row.item.code, description: row.item.name, quantity: String(row.quantity), unitPrice: row.item.unitPrice, taxRate: row.item.taxRate, subtotal: String(calculated.subtotal.minor), taxAmount: String(calculated.tax.minor), total: String(calculated.total.minor) });
+    }
+  });
+  return resolved.length;
 }
 
 export async function issueOrder(id: string, userId: string) {

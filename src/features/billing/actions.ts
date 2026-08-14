@@ -6,17 +6,23 @@ import { revalidatePath } from "next/cache";
 import { getDb } from "@/db";
 import { clients, integrationAttempts, invoices, paymentOrders } from "@/db/schema";
 import { requireUser } from "@/features/auth/session";
+import { writeAudit } from "@/features/audit/service";
 import { getIntellyDteGateway } from "@/features/integrations/intellydte";
 import { AppError } from "@/lib/errors";
 import { enforceSameOrigin } from "@/lib/security";
+import { readCsvFile } from "@/lib/csv";
+import { safeError } from "@/lib/errors";
+import type { ActionState } from "@/lib/action-state";
+import { parseHistoricalInvoicesCsv } from "./csv";
+import { importHistoricalInvoices } from "./service";
 
-export async function issueInvoiceAction(formData: FormData): Promise<void> {
+export async function issueInvoiceAction(_: ActionState, formData: FormData): Promise<ActionState> {
   await enforceSameOrigin(); await requireUser(); const orderId = String(formData.get("orderId"));
   const [order] = await getDb().select({ id: paymentOrders.id, number: paymentOrders.number, status: paymentOrders.status, total: paymentOrders.total, clientTaxId: clients.taxId })
     .from(paymentOrders).innerJoin(clients, eq(clients.id, paymentOrders.clientId)).where(eq(paymentOrders.id, orderId)).limit(1);
   if (!order || order.status !== "paid") throw new AppError("NOT_INVOICEABLE", "La orden debe estar pagada.", 409);
   const [existing] = await getDb().select().from(invoices).where(eq(invoices.paymentOrderId, orderId)).limit(1);
-  if (existing?.status === "issued") return;
+  if (existing?.status === "issued") return { status: "success", message: "La factura ya estaba emitida." };
   const invoiceId = existing?.id ?? randomUUID(); const key = `invoice:${orderId}`; const correlationId = randomUUID();
   const requestHash = createHash("sha256").update(`${order.number}|${order.total}|${order.clientTaxId}`).digest("hex");
   if (!existing) await getDb().insert(invoices).values({ id: invoiceId, paymentOrderId: orderId, status: "processing", requestHash });
@@ -34,4 +40,19 @@ export async function issueInvoiceAction(formData: FormData): Promise<void> {
     await getDb().update(integrationAttempts).set({ status: result.kind, completedAt: new Date(), safeMessage: result.kind === "pending" ? "Pendiente" : result.safeMessage }).where(eq(integrationAttempts.id, attemptId));
   }
   revalidatePath("/facturacion"); revalidatePath("/");
+  return { status: "success", message: result.kind === "issued" ? "Factura emitida." : "Solicitud de facturación registrada." };
+}
+
+export async function importHistoricalInvoicesAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    await enforceSameOrigin();
+    const user = await requireUser("admin");
+    const rows = parseHistoricalInvoicesCsv(await readCsvFile(formData.get("file")));
+    const count = await importHistoricalInvoices(rows);
+    await writeAudit({ actorUserId: user.userId, actorType: "user", action: "invoices.historical_imported", entityType: "invoice", metadata: { created: count } });
+    revalidatePath("/facturacion"); revalidatePath("/ordenes"); revalidatePath("/");
+    return { status: "success", message: `${count} facturas históricas importadas por ${user.name}.` };
+  } catch (error) {
+    return { status: "error", message: safeError(error).message };
+  }
 }
