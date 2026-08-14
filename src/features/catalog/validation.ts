@@ -8,3 +8,6 @@ export const catalogItemSchema = z.object({
   unitPrice: z.coerce.number().int().positive("El precio debe ser mayor que cero."),
   taxCategory: z.enum(["taxable", "exempt"]),
 });
+
+export const catalogItemUpdateSchema = catalogItemSchema.extend({ id: z.string().uuid() });
+export const catalogItemStatusSchema = z.object({ id: z.string().uuid(), status: z.enum(["active", "inactive"]) });

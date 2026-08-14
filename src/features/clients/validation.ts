@@ -27,3 +27,6 @@ export const clientSchema = z.object({
   commune: z.string().trim().max(100).optional(),
   city: z.string().trim().max(100).optional(),
 });
+
+export const clientUpdateSchema = clientSchema.extend({ id: z.string().uuid() });
+export const clientStatusSchema = z.object({ id: z.string().uuid(), status: z.enum(["active", "inactive"]) });

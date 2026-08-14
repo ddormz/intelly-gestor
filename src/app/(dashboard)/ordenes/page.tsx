@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { Alert, Badge, Card, EmptyState, Field, PageHeader, SubmitButton, TableShell } from "@/components/ui";
-import { listClients } from "@/features/clients/service";
-import { listCatalogItems } from "@/features/catalog/service";
+import { listActiveClients } from "@/features/clients/service";
+import { listActiveCatalogItems } from "@/features/catalog/service";
 import { createOrderAction, issueOrderAction, markPaidAction } from "@/features/orders/actions";
 import { listOrders } from "@/features/orders/service";
 import { formatClpAmount } from "@/lib/money";
 import { getStatusLabel } from "@/lib/presentation";
 
 export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ publicLink?: string }> }) {
-  const [{ publicLink }, orders, clients, catalog] = await Promise.all([searchParams, listOrders(), listClients(), listCatalogItems()]);
+  const [{ publicLink }, orders, clients, catalog] = await Promise.all([searchParams, listOrders(), listActiveClients(), listActiveCatalogItems()]);
   const canCreate = clients.length > 0 && catalog.length > 0;
   return <div className="space-y-6">
     <PageHeader title="Órdenes de Pago" description="Crea solicitudes de cobro, emítelas y registra su pago con trazabilidad." />
