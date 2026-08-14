@@ -1,2 +1,3 @@
 "use client";
-export default function ErrorPage({ reset }: { error: Error & { digest?: string }; reset: () => void }) { return <div className="grid min-h-72 place-items-center rounded-2xl border border-red-200 bg-red-50 p-8 text-center"><div><h1 className="text-xl font-bold text-red-900">No pudimos cargar esta sección</h1><p className="mt-2 text-sm text-red-800">Revisa la conexión e intenta nuevamente.</p><button className="btn-primary mt-5" onClick={reset}>Reintentar</button></div></div>; }
+import { ErrorState } from "@/components/ui";
+export default function ErrorPage({ reset }: { error: Error & { digest?: string }; reset: () => void }) { return <ErrorState copy="Revisa la conexión e intenta nuevamente." action={<button className="btn-primary" onClick={reset}>Reintentar</button>} />; }

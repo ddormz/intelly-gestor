@@ -34,3 +34,12 @@ export function formatMoney(value: Money, locale = "es-CL"): string {
     maximumFractionDigits: CLP_DECIMALS,
   }).format(Number(value.minor));
 }
+
+export function formatClpAmount(value: string | number | bigint, locale = "es-CL"): string {
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "CLP",
+    minimumFractionDigits: CLP_DECIMALS,
+    maximumFractionDigits: CLP_DECIMALS,
+  }).format(Number(value));
+}

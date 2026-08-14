@@ -9,8 +9,9 @@ import { writeAudit } from "@/features/audit/service";
 import { safeError } from "@/lib/errors";
 import { enforceSameOrigin } from "@/lib/security";
 import { formObject, parseInput } from "@/lib/validation";
+import type { ActionState } from "@/lib/action-state";
 
-export type LoginState = { error?: string };
+export type LoginState = ActionState;
 
 const loginSchema = z.object({
   email: z.string().trim().email("Ingresa un correo válido.").max(254),
@@ -27,7 +28,7 @@ export async function loginAction(_: LoginState, formData: FormData): Promise<Lo
     await writeAudit({ actorUserId: user.id, actorType: "user", action: "auth.login", entityType: "user", entityId: user.id });
   } catch (error) {
     const safe = safeError(error);
-    return { error: safe.message };
+    return { status: "error", message: safe.message };
   }
   redirect("/");
 }
