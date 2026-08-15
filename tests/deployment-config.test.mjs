@@ -53,6 +53,7 @@ test("keeps build and deployment tooling in the production dependency tree", asy
   assert.equal(production.tailwindcss, "latest");
   assert.equal(production.typescript, "7.0.2");
   assert.equal(production.tsx, "latest");
+  assert.equal(production["@types/nodemailer"], "^8.0.1");
 });
 
 test("keeps development-only TypeScript inputs out of the production program", async () => {

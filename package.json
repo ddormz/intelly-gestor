@@ -25,6 +25,7 @@
   "dependencies": {
     "@node-rs/argon2": "latest",
     "@tailwindcss/postcss": "latest",
+    "@types/nodemailer": "^8.0.1",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
@@ -48,7 +49,6 @@
   },
   "devDependencies": {
     "@playwright/test": "latest",
-    "@types/nodemailer": "^8.0.1",
     "drizzle-kit": "latest",
     "oxlint": "^1.78.0",
     "vitest": "latest"
