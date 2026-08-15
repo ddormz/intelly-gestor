@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, count, desc, eq, gte, like, lte, or, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
-import { auditEvents, clients, invoices, paymentOrders } from "@/db/schema";
+import { auditEvents, clients, invoices, orderEmailDeliveries, paymentOrders } from "@/db/schema";
 import { buildAuditEvent, writeAudit } from "@/features/audit/service";
 import { sendInvoiceMessage } from "@/features/email/mailer";
 import { getFiscalEvidenceArtifact } from "@/features/billing/evidence";
