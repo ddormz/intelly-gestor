@@ -22,7 +22,7 @@ export function safeError(error: unknown) {
   };
 }
 
-const secretKeys = /password|secret|token|authorization|api[-_]?key|database_url|signed[-_]?xml|print[-_]?payload|^ted|^pdf|^xml$|base64/i;
+const secretKeys = /password|secret|token|authorization|api[-_]?key|database_url|signed[-_]?xml|print[-_]?payload|^ted|^pdf|^xml$|base64|timbre|cert|private[-_]?key|rsa[-_]?key|key[-_]?content|tedxml|pdf417/i;
 
 function redactValue(value: unknown, key = ""): unknown {
   if (secretKeys.test(key)) return "[REDACTED]";

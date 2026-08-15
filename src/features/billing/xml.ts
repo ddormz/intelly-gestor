@@ -94,9 +94,17 @@ export function parseSignedDteXml(xml: string): ParsedDteDocument {
   const totales = objectValue(encabezado.Totales);
   for (const [value, code] of [[idDoc, "IDDOC"], [emisor, "EMISOR"], [receptor, "RECEPTOR"], [totales, "TOTALES"]] as const) if (!Object.keys(value).length) throw new FiscalXmlError(`DTE_XML_MISSING_${code}`);
   const tedXml = findTedXml(xml);
+  const type = text(idDoc.TipoDTE, "DTE_XML_MISSING_TYPE");
+  const folio = integer(idDoc.Folio, "DTE_XML_MISSING_FOLIO");
+  const issueDate = text(idDoc.FchEmis, "DTE_XML_MISSING_ISSUE_DATE");
+  const dueDate = optionalText(idDoc.FchVenc);
+  const issuer = { rut: text(emisor.RUTEmisor, "DTE_XML_MISSING_ISSUER_RUT"), name: text(emisor.RznSoc, "DTE_XML_MISSING_ISSUER_NAME"), businessLine: optionalText(emisor.GiroEmis), activity: optionalText(emisor.Acteco), address: optionalText(emisor.DirOrigen), commune: optionalText(emisor.CmnaOrigen), city: optionalText(emisor.CiudadOrigen) };
+  const receiver = { rut: text(receptor.RUTRecep, "DTE_XML_MISSING_RECEIVER_RUT"), name: text(receptor.RznSocRecep, "DTE_XML_MISSING_RECEIVER_NAME"), businessLine: optionalText(receptor.GiroRecep), address: optionalText(receptor.DirRecep), commune: optionalText(receptor.CmnaRecep), city: optionalText(receptor.CiudadRecep) };
+  const totals = { net: integer(totales.MntNeto, "DTE_XML_INVALID_NET"), exempt: totales.MntExe === undefined ? 0 : integer(totales.MntExe, "DTE_XML_INVALID_EXEMPT"), ivaRate: totales.TasaIVA === undefined ? 0 : decimal(totales.TasaIVA, "DTE_XML_INVALID_IVA_RATE"), iva: totales.IVA === undefined ? 0 : integer(totales.IVA, "DTE_XML_INVALID_IVA"), total: integer(totales.MntTotal, "DTE_XML_INVALID_TOTAL") };
+  if (totals.net < 0 || totals.exempt < 0 || totals.iva < 0 || totals.total < 0) throw new FiscalXmlError("DTE_XML_INVALID_NET");
   const detalleNodes = arrayValue(documento.Detalle);
   const details = detalleNodes.map((item, index) => ({
-    lineNumber: integer(item.NroLinDet, "DTE_XML_INVALID_LINE"),
+    lineNumber: item.NroLinDet === undefined ? index + 1 : integer(item.NroLinDet, "DTE_XML_INVALID_LINE"),
     name: text(item.NmbItem, "DTE_XML_INVALID_LINE_NAME"),
     description: optionalText(item.DscItem),
     quantity: decimal(item.QtyItem ?? "1", "DTE_XML_INVALID_LINE_QUANTITY"),
@@ -107,20 +115,20 @@ export function parseSignedDteXml(xml: string): ParsedDteDocument {
     discountPercent: item.DescuentoPct === undefined ? null : decimal(item.DescuentoPct, "DTE_XML_INVALID_DISCOUNT"),
     discountAmount: item.DescuentoMonto === undefined ? 0 : integer(item.DescuentoMonto, "DTE_XML_INVALID_DISCOUNT"),
   })).map((detail) => {
-    if (detail.quantity <= 0 || detail.discountAmount > detail.unitPrice * detail.quantity || detail.discountPercent !== null && (detail.discountPercent < 0 || detail.discountPercent > 100)) throw new FiscalXmlError("DTE_XML_INVALID_DISCOUNT");
+    if (detail.quantity <= 0 || detail.unitPrice < 0 || detail.amount < 0 || detail.discountAmount < 0 || detail.discountAmount > detail.unitPrice * detail.quantity || detail.discountPercent !== null && (detail.discountPercent < 0 || detail.discountPercent > 100)) throw new FiscalXmlError("DTE_XML_INVALID_DISCOUNT");
     if (detail.amount !== Math.round(detail.unitPrice * detail.quantity - detail.discountAmount)) throw new FiscalXmlError("DTE_XML_LINE_TOTAL_MISMATCH");
     return detail;
   });
   const resolution = objectValue(encabezado.Resolucion ?? documento.Resolucion);
   return {
-    type: text(idDoc.TipoDTE, "DTE_XML_MISSING_TYPE"),
-    folio: integer(idDoc.Folio, "DTE_XML_MISSING_FOLIO"),
-    issueDate: text(idDoc.FchEmis, "DTE_XML_MISSING_ISSUE_DATE"),
-    dueDate: optionalText(idDoc.FchVenc),
-    issuer: { rut: text(emisor.RUTEmisor, "DTE_XML_MISSING_ISSUER_RUT"), name: text(emisor.RznSoc, "DTE_XML_MISSING_ISSUER_NAME"), businessLine: optionalText(emisor.GiroEmis), activity: optionalText(emisor.Acteco), address: optionalText(emisor.DirOrigen), commune: optionalText(emisor.CmnaOrigen), city: optionalText(emisor.CiudadOrigen) },
-    receiver: { rut: text(receptor.RUTRecep, "DTE_XML_MISSING_RECEIVER_RUT"), name: text(receptor.RznSocRecep, "DTE_XML_MISSING_RECEIVER_NAME"), businessLine: optionalText(receptor.GiroRecep), address: optionalText(receptor.DirRecep), commune: optionalText(receptor.CmnaRecep), city: optionalText(receptor.CiudadRecep) },
+    type,
+    folio,
+    issueDate,
+    dueDate,
+    issuer,
+    receiver,
     details,
-    totals: { net: integer(totales.MntNeto, "DTE_XML_INVALID_NET"), exempt: totales.MntExe === undefined ? 0 : integer(totales.MntExe, "DTE_XML_INVALID_EXEMPT"), ivaRate: totales.TasaIVA === undefined ? 0 : decimal(totales.TasaIVA, "DTE_XML_INVALID_IVA_RATE"), iva: integer(totales.IVA, "DTE_XML_INVALID_IVA"), total: integer(totales.MntTotal, "DTE_XML_INVALID_TOTAL") },
+    totals,
     references: arrayValue(documento.Referencia).map((reference) => ({ type: text(reference.TpoDocRef, "DTE_XML_INVALID_REFERENCE"), folio: text(reference.FolioRef, "DTE_XML_INVALID_REFERENCE"), date: optionalText(reference.FchRef), reason: optionalText(reference.RazonRef), code: optionalText(reference.CodRef) })),
     resolution: { date: optionalText(resolution.FchResol), number: optionalText(resolution.NroResol) },
     tedXml,

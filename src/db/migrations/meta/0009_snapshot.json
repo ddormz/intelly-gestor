@@ -953,6 +953,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "encoding": {
+          "name": "encoding",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "regenerated_at": {
           "name": "regenerated_at",
           "type": "datetime",

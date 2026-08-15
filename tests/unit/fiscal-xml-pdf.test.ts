@@ -34,7 +34,7 @@ describe("signed DTE XML and local fiscal PDF", () => {
   it("rejects missing required totals and line price instead of defaulting them", () => {
     const missingTotal = "<DTE><Documento><Encabezado><IdDoc><TipoDTE>33</TipoDTE><Folio>1</Folio><FchEmis>2026-08-15</FchEmis></IdDoc><Emisor><RUTEmisor>1-9</RUTEmisor><RznSoc>E</RznSoc></Emisor><Receptor><RUTRecep>2-7</RUTRecep><RznSocRecep>R</RznSocRecep></Receptor><Totales><IVA>0</IVA><MntTotal>0</MntTotal></Totales></Encabezado><Detalle><NmbItem>X</NmbItem><PrcItem>1</PrcItem><MontoItem>1</MontoItem></Detalle><TED><DD/></TED></Documento></DTE>";
     expect(() => parseSignedDteXml(missingTotal)).toThrow("DTE_XML_INVALID_NET");
-    const completeTotals = missingTotal.replace("<IVA>0>", "<MntNeto>1</MntNeto><IVA>0>");
+    const completeTotals = missingTotal.replace("<IVA>0</IVA>", "<MntNeto>1</MntNeto><IVA>0</IVA>");
     expect(() => parseSignedDteXml(completeTotals.replace("<PrcItem>1</PrcItem>", ""))).toThrow("DTE_XML_INVALID_LINE_PRICE");
   });
 

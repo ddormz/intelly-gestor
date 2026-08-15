@@ -69,7 +69,14 @@ async function writePrivateBytes(invoiceId: string, kind: SignedFiscalEvidence["
 }
 
 function isDuplicateError(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && (("code" in error && (error as { code?: string }).code === "ER_DUP_ENTRY") || ("errno" in error && (error as { errno?: number }).errno === 1062)));
+  if (!error) return false;
+  if (typeof error === "object") {
+    if ("code" in error && (error as { code?: string }).code === "ER_DUP_ENTRY") return true;
+    if ("errno" in error && (error as { errno?: number }).errno === 1062) return true;
+    if ("cause" in error && isDuplicateError((error as { cause?: unknown }).cause)) return true;
+    if ("message" in error && /ER_DUP_ENTRY|Duplicate entry|invoice_evidence_version_uq/i.test(String((error as { message?: string }).message))) return true;
+  }
+  return false;
 }
 
 async function storeArtifact(invoiceId: string, metadata: FiscalEvidenceMetadata, bytes: Uint8Array, kind: SignedFiscalEvidence["kind"], mimeType: string, extension: string, retry = 0): Promise<SignedFiscalEvidence> {
@@ -94,7 +101,7 @@ async function storeArtifact(invoiceId: string, metadata: FiscalEvidenceMetadata
       await db.insert(invoiceEvidence).values(row);
     }
   } catch (error) {
-    if (isDuplicateError(error) && retry < 4) return storeArtifact(invoiceId, metadata, bytes, kind, mimeType, extension, retry + 1);
+    if (isDuplicateError(error) && retry < 5) return storeArtifact(invoiceId, metadata, bytes, kind, mimeType, extension, retry + 1);
     throw error;
   }
   return { ...row, bytes };
@@ -103,7 +110,7 @@ async function storeArtifact(invoiceId: string, metadata: FiscalEvidenceMetadata
 function detectXmlEncoding(bytes: Uint8Array): string {
   const prefix = Buffer.from(bytes.slice(0, 512)).toString("latin1");
   const declaration = prefix.match(/encoding\s*=\s*["']([^"']+)["']/i)?.[1];
-  return declaration?.trim() || "UTF-8";
+  return declaration?.trim() || "ISO-8859-1";
 }
 
 export function storeSignedXml(invoiceId: string, metadata: FiscalEvidenceMetadata, xml: string): Promise<SignedFiscalEvidence> {

@@ -24,7 +24,7 @@ describe("fiscal emission orchestration contracts", () => {
   });
 
   it("decodes ISO-8859-1 signed XML without changing the original bytes", () => {
-    const source = `<?xml version="1.0" encoding="ISO-8859-1"?><DTE><Documento><Encabezado><IdDoc><TipoDTE>33</TipoDTE><Folio>42</Folio><FchEmis>2026-08-15</FchEmis></IdDoc><Emisor><RUTEmisor>76123456-7</RUTEmisor><RznSoc>EMISOR SPA</RznSoc></Emisor><Receptor><RUTRecep>96543210-1</RUTRecep><RznSocRecep>NIÑO SPA</RznSocRecep></Receptor><Totales><MntNeto>100</MntNeto><IVA>19</IVA><MntTotal>119</MntTotal></Totales></Encabezado><Detalle><NmbItem>Servicio</NmbItem><MontoItem>100</MontoItem></Detalle><TED><DD><TD>33</TD><F>42</F></DD></TED></Documento></DTE>`;
+    const source = `<?xml version="1.0" encoding="ISO-8859-1"?><DTE><Documento><Encabezado><IdDoc><TipoDTE>33</TipoDTE><Folio>42</Folio><FchEmis>2026-08-15</FchEmis></IdDoc><Emisor><RUTEmisor>76123456-7</RUTEmisor><RznSoc>EMISOR SPA</RznSoc></Emisor><Receptor><RUTRecep>96543210-1</RUTRecep><RznSocRecep>NIÑO SPA</RznSocRecep></Receptor><Totales><MntNeto>100</MntNeto><IVA>19</IVA><MntTotal>119</MntTotal></Totales></Encabezado><Detalle><NmbItem>Servicio</NmbItem><PrcItem>100</PrcItem><MontoItem>100</MontoItem></Detalle><TED><DD><TD>33</TD><F>42</F></DD></TED></Documento></DTE>`;
     const bytes = Buffer.from(source, "latin1");
     expect(parseSignedDteXmlBytes(bytes).receiver.name).toBe("NIÑO SPA");
   });

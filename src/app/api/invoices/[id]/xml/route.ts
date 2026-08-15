@@ -14,6 +14,6 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (!artifact?.bytes) return new Response("Evidencia XML no encontrada.", { status: 404 });
   const body = new ArrayBuffer(artifact.bytes.byteLength);
   new Uint8Array(body).set(artifact.bytes);
-  const charset = artifact.encoding?.trim() || "UTF-8";
+  const charset = artifact.encoding?.trim() || "ISO-8859-1";
   return new Response(body, { headers: { "Content-Type": `application/xml; charset=${charset}`, "Content-Disposition": `attachment; filename="factura-${safeFolio(artifact.folio)}.xml"`, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
 }
