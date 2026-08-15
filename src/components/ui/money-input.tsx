@@ -5,19 +5,17 @@ import { Field } from "./primitives";
 
 export const MAX_CLP_INPUT = Number.MAX_SAFE_INTEGER;
 
-function normalizedDigits(value: string): string {
-  return value.replace(/[$\s\u00a0]/g, "");
-}
-
 export function parseClpInput(value: string | number): number {
-  const raw = typeof value === "number" ? String(value) : normalizedDigits(value.trim());
-  if (!raw || /[^0-9.]/.test(raw) || raw.includes("-")) {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value <= 0 || value > MAX_CLP_INPUT) {
+      throw new RangeError("El monto CLP está fuera del rango permitido.");
+    }
+    return Math.round(value);
+  }
+  const digits = String(value).replace(/\D/g, "");
+  if (!digits) {
     throw new RangeError("Ingresa un monto CLP entero positivo.");
   }
-  if (raw.includes(".") && !/^\d{1,3}(?:\.\d{3})+$/.test(raw)) {
-    throw new RangeError("Los montos CLP no aceptan decimales.");
-  }
-  const digits = raw.replace(/\./g, "");
   const amount = Number(digits);
   if (!Number.isSafeInteger(amount) || amount <= 0 || amount > MAX_CLP_INPUT) {
     throw new RangeError("El monto CLP está fuera del rango permitido.");
@@ -29,7 +27,7 @@ export function formatClpInput(value: string | number | bigint | undefined): str
   if (value === undefined || value === "") return "";
   const amount = typeof value === "bigint" ? Number(value) : Number(value);
   if (!Number.isSafeInteger(amount) || amount <= 0) return "";
-  return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(amount);
+  return `$ ${amount.toLocaleString("es-CL")}`;
 }
 
 type MoneyInputProps = {
@@ -48,23 +46,32 @@ export function MoneyInput({ name, label, defaultValue, error, required = false 
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
     const raw = event.target.value;
-    if (!raw.trim()) {
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) {
       setDisplayValue("");
       setNormalizedValue("");
       return;
     }
-    try {
-      const parsed = parseClpInput(raw);
-      setDisplayValue(formatClpInput(parsed));
-      setNormalizedValue(String(parsed));
-    } catch {
-      setDisplayValue(raw);
+    const amount = parseInt(digits, 10);
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
+      setDisplayValue("");
       setNormalizedValue("");
+      return;
     }
+    setDisplayValue(`$ ${amount.toLocaleString("es-CL")}`);
+    setNormalizedValue(String(amount));
   }
 
   return <Field label={label} error={error}>
-    <input type="text" inputMode="numeric" value={displayValue} onChange={handleChange} className="field" aria-label={label} />
+    <input
+      type="text"
+      inputMode="numeric"
+      value={displayValue}
+      onChange={handleChange}
+      placeholder="$ 0"
+      className="field font-semibold"
+      aria-label={label}
+    />
     <input type="hidden" name={name} value={normalizedValue} required={required} />
   </Field>;
 }

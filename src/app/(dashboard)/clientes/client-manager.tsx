@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Download, FileDown, Pencil, Power, Search, Upload, UserRoundPlus } from "lucide-react";
-import { ActionModal, Alert, Badge, ComboBox, EmptyState, Field, IconButton, Input, PageHeader, Pagination, TableShell, TableToolbar } from "@/components/ui";
+import { ActionModal, Alert, Badge, ComboBox, EmptyState, Field, IconButton, Input, PageHeader, Pagination, TableShell, TableToolbar, TypeSelector } from "@/components/ui";
 import { createClientAction, importClientsAction, setClientStatusAction, updateClientAction } from "@/features/clients/actions";
 import { cityForCommune, listCommunes, listRegions } from "@/features/clients/geography";
 import type { PageQuery } from "@/lib/list-query";
@@ -60,7 +60,7 @@ function ClientFields({ item, errors }: { item?: ClientListItem; errors?: Record
 
   return <>
     {item ? <input type="hidden" name="id" value={item.id} /> : null}
-    <ComboBox name="kind" label="Tipo" options={[{ value: "company", label: "Empresa" }, { value: "person", label: "Persona" }]} value={kind} onChange={(value) => setKind(value as ClientListItem["kind"])} required />
+    <TypeSelector name="kind" label="Tipo de cliente" options={[{ value: "company", label: "Empresa" }, { value: "person", label: "Persona" }]} value={kind} onChange={(value) => setKind(value as ClientListItem["kind"])} required error={errors?.kind?.[0]} />
     <Field label="RUT" error={errors?.taxId?.[0]}><div className="flex items-end gap-2"><Input required name="taxId" value={taxId} onChange={(event) => setTaxId(event.target.value)} placeholder="76.123.456-0" /><IconButton type="button" label="Consultar RUT" icon={<Search size={18} />} pending={lookup.status === "loading"} disabled={!taxId.trim()} onClick={lookupRut} /></div></Field>
     <Field label="Razón social o nombre" error={errors?.legalName?.[0]}><Input required name="legalName" value={legalName} onChange={(event) => setLegalName(event.target.value)} placeholder="Comercial Intelly SpA" /></Field>
     {lookup.status !== "idle" ? <Alert tone={lookup.status === "error" ? "error" : lookup.status === "success" ? "success" : "info"}>{lookup.status === "loading" ? "Consultando RUT…" : lookup.message}</Alert> : null}

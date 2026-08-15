@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Download, FileDown, PackagePlus, Pencil, Power, Upload } from "lucide-react";
-import { ActionModal, Badge, ComboBox, EmptyState, Field, IconButton, Input, MoneyInput, PageHeader, Pagination, TableShell, TableToolbar } from "@/components/ui";
+import { ActionModal, Badge, EmptyState, Field, IconButton, Input, MoneyInput, PageHeader, Pagination, TableShell, TableToolbar, TypeSelector } from "@/components/ui";
 import { createCatalogItemAction, importCatalogAction, setCatalogItemStatusAction, updateCatalogItemAction } from "@/features/catalog/actions";
 import { formatClpAmount } from "@/lib/money";
 import type { PageQuery } from "@/lib/list-query";
@@ -13,7 +13,7 @@ function CatalogFields({ item, errors }: { item?: CatalogListItem; errors?: Reco
   const [type, setType] = useState(item?.type ?? "service");
   return <>
     {item ? <input type="hidden" name="id" value={item.id} /> : null}
-    <ComboBox name="type" label="Tipo" options={[{ value: "service", label: "Servicio" }, { value: "product", label: "Producto" }, { value: "project", label: "Proyecto" }]} value={type} onChange={(value) => setType(value as CatalogListItem["type"])} required />
+    <TypeSelector name="type" label="Tipo" options={[{ value: "service", label: "Servicio" }, { value: "product", label: "Producto" }, { value: "project", label: "Proyecto" }]} value={type} onChange={(value) => setType(value as CatalogListItem["type"])} required error={errors?.type?.[0]} />
     <Field label="Código" error={errors?.code?.[0]} hint={item ? "Código histórico conservado por el servidor." : "El servidor lo genera al guardar."}><Input readOnly value={item?.code ?? ""} placeholder={item ? undefined : "Se genera al guardar"} /></Field>
     <Field label="Nombre" error={errors?.name?.[0]}><Input required name="name" defaultValue={item?.name ?? ""} placeholder="Implementación mensual" /></Field>
     <Field label="Descripción" error={errors?.description?.[0]}><textarea name="description" defaultValue={item?.description ?? ""} className="field min-h-24" placeholder="Describe el alcance incluido para el cliente." /></Field>

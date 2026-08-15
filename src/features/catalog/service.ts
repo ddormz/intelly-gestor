@@ -1,4 +1,4 @@
-import { and, asc, count, eq, like, or, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, isNull, like, or, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import { catalogItems } from "@/db/schema";
 import type { PageQuery, PageResult } from "@/lib/list-query";
@@ -32,10 +32,10 @@ export async function listCatalogItems(query?: PageQuery): Promise<CatalogItem[]
 }
 
 export function listActiveCatalogItems() {
-  return getDb().select().from(catalogItems).where(eq(catalogItems.status, "active")).orderBy(asc(catalogItems.name), asc(catalogItems.id)).limit(500).execute();
+  return getDb().select().from(catalogItems).where(or(eq(catalogItems.status, "active"), isNull(catalogItems.status))).orderBy(asc(catalogItems.name), asc(catalogItems.id)).limit(500).execute();
 }
 
 export async function hasActiveCatalogItem(): Promise<boolean> {
-  const [item] = await getDb().select({ id: catalogItems.id }).from(catalogItems).where(eq(catalogItems.status, "active")).limit(1).execute();
+  const [item] = await getDb().select({ id: catalogItems.id }).from(catalogItems).where(or(eq(catalogItems.status, "active"), isNull(catalogItems.status))).limit(1).execute();
   return Boolean(item);
 }

@@ -1,4 +1,4 @@
-import { and, asc, count, eq, like, or, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, isNull, like, or, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import { clients } from "@/db/schema";
 import type { PageQuery, PageResult } from "@/lib/list-query";
@@ -32,15 +32,15 @@ export async function listClients(query?: PageQuery): Promise<Client[] | PageRes
 }
 
 export function listActiveClients() {
-  return getDb().select().from(clients).where(eq(clients.status, "active")).orderBy(asc(clients.legalName), asc(clients.id)).limit(500).execute();
+  return getDb().select().from(clients).where(or(eq(clients.status, "active"), isNull(clients.status))).orderBy(asc(clients.legalName), asc(clients.id)).limit(500).execute();
 }
 
 export async function hasActiveClient(): Promise<boolean> {
-  const [client] = await getDb().select({ id: clients.id }).from(clients).where(eq(clients.status, "active")).limit(1).execute();
+  const [client] = await getDb().select({ id: clients.id }).from(clients).where(or(eq(clients.status, "active"), isNull(clients.status))).limit(1).execute();
   return Boolean(client);
 }
 
 export async function findActiveClient(id: string) {
-  const [client] = await getDb().select({ id: clients.id, legalName: clients.legalName, taxId: clients.taxId, email: clients.email }).from(clients).where(and(eq(clients.id, id), eq(clients.status, "active"))).limit(1).execute();
+  const [client] = await getDb().select({ id: clients.id, legalName: clients.legalName, taxId: clients.taxId, email: clients.email }).from(clients).where(and(eq(clients.id, id), or(eq(clients.status, "active"), isNull(clients.status)))).limit(1).execute();
   return client ?? null;
 }

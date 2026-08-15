@@ -8,3 +8,4 @@ export * from "./combo-box";
 export * from "./table-toolbar";
 export * from "./pagination";
 export * from "./money-input";
+export * from "./type-selector";

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { Search, X } from "lucide-react";
 import { IconButton } from "./icon-button";
 import { withPageQuery, type QueryInput } from "@/lib/list-query";
@@ -43,7 +44,7 @@ export function TableToolbar({ query, filters = [], tabs = [], action }: TableTo
         </div>
         <HiddenQuery query={query} />
         <IconButton type="submit" label="Buscar" icon={<Search size={18} />} variant="primary" />
-        {query.q ? <IconButton href={queryHref(query, { q: "" })} label="Limpiar búsqueda" icon={<X size={18} />} /> : null}
+        {query.q ? <IconButton href={queryHref(query, { q: "", page: "1" })} label="Limpiar búsqueda" icon={<X size={18} />} /> : null}
       </form>
       {action ? <div className="page-header-action">{action}</div> : null}
     </div>
@@ -51,12 +52,32 @@ export function TableToolbar({ query, filters = [], tabs = [], action }: TableTo
       {filters.map((filter) => <div key={filter.name} className="grid gap-1.5">
         <span className="text-xs font-bold uppercase tracking-wide text-[var(--color-muted-foreground)]">{filter.label}</span>
         <div className="flex flex-wrap gap-2">
-          {filter.options.map((option) => <a key={option.value || "all"} href={queryHref(query, { [filter.name]: option.value })} className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${query[filter.name] === option.value || (!query[filter.name] && !option.value) ? "border-[var(--brand-blue)] bg-[rgb(47_167_255_/_0.1)] text-[var(--brand-navy)]" : "border-[var(--color-border)] bg-white text-[var(--color-muted-foreground)] hover:border-[var(--brand-blue)]"}`}>{option.label}</a>)}
+          {filter.options.map((option) => {
+            const href = queryHref(query, { [filter.name]: option.value, page: "1" });
+            const isSelected = query[filter.name] === option.value || (!query[filter.name] && !option.value);
+            return <Link
+              key={option.value || "all"}
+              href={href}
+              scroll={false}
+              className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors ${isSelected ? "border-[var(--brand-blue)] bg-[rgb(47_167_255_/_0.15)] text-[var(--brand-navy)] font-bold shadow-xs" : "border-[var(--color-border)] bg-white text-[var(--color-muted-foreground)] hover:border-[var(--brand-blue)] hover:text-[var(--brand-deep)]"}`}
+            >{option.label}</Link>;
+          })}
         </div>
       </div>)}
     </div> : null}
     {tabs.length ? <div role="tablist" aria-label="Vistas de la lista" className="table-tabs flex flex-wrap gap-1 border-b border-[var(--color-border)]">
-      {tabs.map((tab) => <a key={tab.value} role="tab" aria-selected={currentTab === tab.value} href={queryHref(query, { tab: tab.value })} className={`border-b-2 px-3 py-2 text-sm font-bold ${currentTab === tab.value ? "border-[var(--brand-royal)] text-[var(--brand-royal)]" : "border-transparent text-[var(--color-muted-foreground)] hover:text-[var(--brand-navy)]"}`}>{tab.label}</a>)}
+      {tabs.map((tab) => {
+        const href = queryHref(query, { tab: tab.value, page: "1" });
+        const isActive = currentTab === tab.value;
+        return <Link
+          key={tab.value}
+          role="tab"
+          aria-selected={isActive}
+          href={href}
+          scroll={false}
+          className={`border-b-2 px-3 py-2 text-sm font-bold transition-colors ${isActive ? "border-[var(--brand-royal)] text-[var(--brand-royal)]" : "border-transparent text-[var(--color-muted-foreground)] hover:text-[var(--brand-navy)] hover:border-[var(--color-border-strong)]"}`}
+        >{tab.label}</Link>;
+      })}
     </div> : null}
   </div>;
 }
