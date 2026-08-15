@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { CreditCard, Database, Download, KeyRound, Mail, PlugZap, ShieldCheck, TestTube2 } from "lucide-react";
-import { ActionModal, Badge, Card, EmptyState, Field, IconButton, Input, PageHeader, Pagination, TableShell, TableToolbar } from "@/components/ui";
+import { ActionModal, Alert, Badge, Card, EmptyState, Field, IconButton, Input, PageHeader, Pagination, TableShell, TableToolbar } from "@/components/ui";
 import {
   saveIntellyDteConfigAction,
   saveWebpayConfigAction,
@@ -12,8 +13,51 @@ import {
 } from "@/features/integrations/actions";
 import { getOperationLabel, getStatusLabel } from "@/lib/presentation";
 import type { PageQuery } from "@/lib/list-query";
+import type { ActionState } from "@/lib/action-state";
 
 type Attempt = { id: string; createdAt: string; operation: string; status: string; correlationId: string; safeMessage: string | null };
+
+function DirectTestButton({
+  label,
+  action,
+  onResult,
+}: {
+  label: string;
+  action: (state: ActionState, formData: FormData) => Promise<ActionState>;
+  onResult: (result: { ok: boolean; message: string }) => void;
+}) {
+  const [pending, setPending] = useState(false);
+
+  async function handleTest() {
+    setPending(true);
+    try {
+      const res = await action({ status: "idle" }, new FormData());
+      onResult({
+        ok: res.status === "success",
+        message: res.message || (res.status === "success" ? "Prueba exitosa." : "Fallo de conexión."),
+      });
+    } catch (error) {
+      onResult({
+        ok: false,
+        message: error instanceof Error ? error.message : "Error al conectar.",
+      });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleTest}
+      disabled={pending}
+      className="btn-secondary !h-8 !px-3 text-xs inline-flex items-center gap-1.5 hover:border-[var(--brand-royal)]"
+    >
+      <TestTube2 size={13} className={pending ? "animate-spin text-[var(--brand-royal)]" : ""} />
+      {pending ? "Probando…" : label}
+    </button>
+  );
+}
 
 export function IntegrationManager({
   dbOk,
@@ -34,6 +78,11 @@ export function IntegrationManager({
   pageSize: number;
   total: number;
 }) {
+  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const isDteConfigured = config.configured;
+  const isDteOperative = isDteConfigured && dte.ok;
+
   const actions = (
     <>
       <ActionModal
@@ -73,9 +122,24 @@ export function IntegrationManager({
     <div className="space-y-6">
       <PageHeader
         title="Integraciones"
-        description="Gestiona conexiones con IntellyDTE, Transbank WebPay, correo SMTP y base de datos con pruebas de conectividad en tiempo real."
+        description="Gestiona conexiones con IntellyDTE, Transbank WebPay, correo SMTP y base de datos con pruebas de conectividad directa en tiempo real."
         action={actions}
       />
+
+      {feedback && (
+        <Alert tone={feedback.ok ? "success" : "error"}>
+          <div className="flex items-center justify-between gap-4">
+            <p className="font-semibold text-sm">{feedback.message}</p>
+            <button
+              type="button"
+              onClick={() => setFeedback(null)}
+              className="text-xs font-bold underline opacity-80 hover:opacity-100"
+            >
+              Cerrar
+            </button>
+          </div>
+        </Alert>
+      )}
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* MySQL */}
@@ -93,17 +157,11 @@ export function IntegrationManager({
             <Badge status={dbOk ? "paid" : "rejected"}>{dbOk ? "Operativo" : "Error"}</Badge>
           </div>
           <div className="flex items-center justify-between border-t border-[var(--color-border)] pt-3">
-            <ActionModal
-              triggerLabel="Probar conexión"
-              triggerIcon={<TestTube2 size={14} className="mr-1 inline" />}
-              variant="secondary"
-              title="Test de Conexión a Base de Datos"
-              description="Verifica la conectividad y latencia del pool MySQL."
-              submitLabel="Ejecutar prueba"
+            <DirectTestButton
+              label="Probar conexión"
               action={testDatabaseAction}
-            >
-              {() => <p className="text-sm text-[var(--color-muted-foreground)]">Se enviará una consulta ping al pool de conexiones MySQL.</p>}
-            </ActionModal>
+              onResult={(res) => setFeedback(res)}
+            />
           </div>
         </Card>
 
@@ -116,23 +174,50 @@ export function IntegrationManager({
               </div>
               <div>
                 <h3 className="font-bold text-sm text-[var(--brand-deep)]">IntellyDTE</h3>
-                <p className="text-xs text-[var(--color-muted-foreground)] truncate max-w-[120px]" title={dte.safeMessage}>{dte.safeMessage}</p>
+                <p className="text-xs text-[var(--color-muted-foreground)] truncate max-w-[120px]" title={isDteConfigured ? dte.safeMessage : "Sin configurar"}>
+                  {isDteConfigured ? dte.safeMessage : "Sin configurar"}
+                </p>
               </div>
             </div>
-            <Badge status={dte.ok ? "paid" : "pending"}>{dte.ok ? "Operativo" : config.configured ? "Revisar" : "Sin config"}</Badge>
+            <Badge status={isDteOperative ? "paid" : isDteConfigured ? "rejected" : "pending"}>
+              {isDteOperative ? "Operativo" : isDteConfigured ? "Revisar" : "Sin configurar"}
+            </Badge>
           </div>
-          <div className="flex items-center justify-between border-t border-[var(--color-border)] pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-3">
             <ActionModal
-              triggerLabel="Probar DTE"
-              triggerIcon={<TestTube2 size={14} className="mr-1 inline" />}
+              triggerLabel="Configurar"
+              triggerIcon={<KeyRound size={14} className="mr-1 inline" />}
               variant="secondary"
-              title="Test de Conexión a IntellyDTE"
-              description="Verifica la API Key y conexión con el backend de facturación electrónica."
-              submitLabel="Iniciar prueba"
-              action={testIntellyDteConfigAction}
+              title="Configurar IntellyDTE"
+              description="Ingresa la Base URL y API Key de IntellyDTE."
+              submitLabel="Guardar configuración"
+              action={saveIntellyDteConfigAction}
             >
-              {() => <p className="text-sm text-[var(--color-muted-foreground)]">La prueba verifica el endpoint de salud de IntellyDTE sin emitir DTEs.</p>}
+              {(state) => (
+                <>
+                  <Field label="Base URL" error={state.fieldErrors?.baseUrl?.[0]}>
+                    <Input required type="url" name="baseUrl" defaultValue={config.baseUrl} placeholder="https://api.intellydte.cl" />
+                  </Field>
+                  <Field label="API Key del tenant" error={state.fieldErrors?.tenantApiKey?.[0]} hint={config.configured ? `Configurada como ${config.apiKeyMask}. Déjala vacía para conservarla.` : "Prefijo esperado: ik_."}>
+                    <Input name="tenantApiKey" type="password" autoComplete="off" placeholder="ik_..." />
+                  </Field>
+                  <Field label="API Key del sistema" error={state.fieldErrors?.systemApiKey?.[0]} hint="Necesaria para consultar estados. Prefijo esperado: isk_.">
+                    <Input name="systemApiKey" type="password" autoComplete="off" placeholder="isk_..." />
+                  </Field>
+                  <Field label="RUT del tenant" error={state.fieldErrors?.tenantRut?.[0]}>
+                    <Input name="tenantRut" placeholder="76.123.456-7" />
+                  </Field>
+                  <Field label="Secreto webhook" hint="Opcional. Déjalo vacío para conservarlo.">
+                    <Input name="webhookSecret" type="password" autoComplete="off" placeholder="Secreto X-Intelly-Signature" />
+                  </Field>
+                </>
+              )}
             </ActionModal>
+            <DirectTestButton
+              label="Probar DTE"
+              action={testIntellyDteConfigAction}
+              onResult={(res) => setFeedback(res)}
+            />
           </div>
         </Card>
 
@@ -177,17 +262,11 @@ export function IntegrationManager({
                 </>
               )}
             </ActionModal>
-            <ActionModal
-              triggerLabel="Probar"
-              triggerIcon={<TestTube2 size={14} className="mr-1 inline" />}
-              variant="secondary"
-              title="Test de Conexión a Transbank WebPay"
-              description="Verifica las credenciales y la conectividad con el servidor REST de Transbank."
-              submitLabel="Probar Transbank"
+            <DirectTestButton
+              label="Probar"
               action={testWebpayConfigAction}
-            >
-              {() => <p className="text-sm text-[var(--color-muted-foreground)]">Se iniciará una verificación de token con el servidor de Transbank WebPay Plus.</p>}
-            </ActionModal>
+              onResult={(res) => setFeedback(res)}
+            />
           </div>
         </Card>
 
@@ -206,17 +285,11 @@ export function IntegrationManager({
             <Badge status="paid">Configurado</Badge>
           </div>
           <div className="flex items-center justify-between border-t border-[var(--color-border)] pt-3">
-            <ActionModal
-              triggerLabel="Probar SMTP"
-              triggerIcon={<TestTube2 size={14} className="mr-1 inline" />}
-              variant="secondary"
-              title="Test de Servidor de Correo SMTP"
-              description="Verifica las credenciales y el handshake TLS con el servidor SMTP."
-              submitLabel="Probar conexión SMTP"
+            <DirectTestButton
+              label="Probar SMTP"
               action={testSmtpConfigAction}
-            >
-              {() => <p className="text-sm text-[var(--color-muted-foreground)]">Se verificará el handshake con el servidor SMTP de Hostinger.</p>}
-            </ActionModal>
+              onResult={(res) => setFeedback(res)}
+            />
           </div>
         </Card>
       </section>

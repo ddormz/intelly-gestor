@@ -70,6 +70,14 @@ export async function testIntellyDteConfigAction(_: ActionState, _formData: Form
   try {
     await enforceSameOrigin();
     await requireUser("admin");
+    const { getIntellyDtePublicConfig } = await import("./config-service");
+    const publicConf = await getIntellyDtePublicConfig();
+    if (!publicConf.configured) {
+      return {
+        status: "error",
+        message: "IntellyDTE no está configurado. Haz clic en 'Configurar' para ingresar la Base URL y tu API Key.",
+      };
+    }
     const result = await (await getIntellyDteGateway()).health();
     return { status: result.ok ? "success" : "error", message: result.safeMessage };
   } catch (error) {
