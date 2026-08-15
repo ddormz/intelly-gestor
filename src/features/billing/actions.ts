@@ -106,3 +106,20 @@ export async function sendInvoiceEmailAction(_: ActionState, formData: FormData)
     return { status: "error", message: safeError(error).message };
   }
 }
+
+export async function syncFoliosAction(_: ActionState, _formData: FormData): Promise<ActionState> {
+  try {
+    await enforceSameOrigin();
+    await requireUser();
+    const gateway = await getIntellyDteGateway();
+    const folios = await gateway.getFoliosStatus();
+    revalidatePath("/facturacion");
+    const summary = folios.map((f) => `DTE ${f.tipoDte}: ${f.disponibles} disp.`).join(" | ");
+    return {
+      status: "success",
+      message: `Folios sincronizados con IntellyDTE (${summary}).`,
+    };
+  } catch (error) {
+    return { status: "error", message: safeError(error).message };
+  }
+}

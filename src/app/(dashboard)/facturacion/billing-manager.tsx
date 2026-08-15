@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import {
   ActionModal,
+  Alert,
   Badge,
   Card,
   EmptyState,
@@ -33,6 +34,7 @@ import {
   refreshInvoiceStatusAction,
   requestFoliosAction,
   sendInvoiceEmailAction,
+  syncFoliosAction,
 } from "@/features/billing/actions";
 import { formatClpAmount } from "@/lib/money";
 import { getStatusLabel } from "@/lib/presentation";
@@ -59,6 +61,41 @@ type ReadyOrder = {
   clientName: string;
   total: string;
 };
+
+function DirectSyncFoliosButton({ onResult }: { onResult: (res: { ok: boolean; message: string }) => void }) {
+  const [pending, setPending] = useState(false);
+
+  async function handleSync() {
+    setPending(true);
+    try {
+      const res = await syncFoliosAction({ status: "idle" }, new FormData());
+      onResult({
+        ok: res.status === "success",
+        message: res.message || "Folios sincronizados.",
+      });
+    } catch (error) {
+      onResult({
+        ok: false,
+        message: error instanceof Error ? error.message : "Error al sincronizar folios.",
+      });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleSync}
+      disabled={pending}
+      className="btn-secondary !h-9 !px-3.5 inline-flex items-center gap-1.5 text-xs font-semibold hover:border-[var(--brand-royal)]"
+      title="Consulta el saldo actualizado de folios con IntellyDTE"
+    >
+      <RefreshCw size={14} className={pending ? "animate-spin text-[var(--brand-royal)]" : ""} />
+      {pending ? "Sincronizando…" : "Sincronizar folios"}
+    </button>
+  );
+}
 
 function EmailRecipientFields({
   registeredEmail,
@@ -177,8 +214,11 @@ export function BillingManager({
   total: number;
   folios?: FolioStatusItem[];
 }) {
+  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+
   const actions = (
     <>
+      <DirectSyncFoliosButton onResult={(res) => setFeedback(res)} />
       <ActionModal
         triggerLabel="Solicitar folios al SII"
         triggerIcon={<PlusCircle size={18} />}
@@ -221,6 +261,21 @@ export function BillingManager({
         description="Emite facturas electrónicas oficiales ante el SII, administra folios CAF y gestiona el envío de comprobantes fiscales."
         action={actions}
       />
+
+      {feedback && (
+        <Alert tone={feedback.ok ? "success" : "error"}>
+          <div className="flex items-center justify-between gap-4">
+            <p className="font-semibold text-sm">{feedback.message}</p>
+            <button
+              type="button"
+              onClick={() => setFeedback(null)}
+              className="text-xs font-bold underline opacity-80 hover:opacity-100"
+            >
+              Cerrar
+            </button>
+          </div>
+        </Alert>
+      )}
 
       {/* Indicadores de Folios CAF (33, 39, 61) */}
       <section className="grid gap-4 sm:grid-cols-3">
