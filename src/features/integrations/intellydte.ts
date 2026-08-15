@@ -159,45 +159,76 @@ export class IntellyDteHttpGateway implements IntellyDteGateway {
       { tipoDte: 61, tipoNombre: "Nota de Crédito", disponibles: 0, alerta: "critical" },
     ];
 
+    if (!this.tenantRut) return defaultList;
+
     try {
-      const result = await this.request("/folios/status", {
-        method: "GET",
-        headers: {
-          "x-api-key": this.tenantApiKey,
-          ...(this.tenantRut ? { "x-tenant-rut": this.tenantRut } : {}),
-          Accept: "application/json",
-        },
-      });
+      const apiKey = this.systemApiKey || this.tenantApiKey;
+      const result = await this.request(
+        `/integrations/tenants/${encodeURIComponent(this.tenantRut)}/folios`,
+        {
+          method: "GET",
+          headers: {
+            "x-api-key": apiKey,
+            "x-tenant-rut": this.tenantRut,
+            Accept: "application/json",
+          },
+        }
+      );
 
       if ("error" in result || !result.response.ok || !result.body) {
         return defaultList;
       }
 
       const root = result.body as Record<string, unknown>;
-      const rawList = Array.isArray(root.data)
-        ? root.data
-        : Array.isArray(root.folios)
-          ? root.folios
-          : Array.isArray(root)
-            ? root
-            : [];
-
-      if (!rawList.length) return defaultList;
+      const data = (root.data && typeof root.data === "object" ? root.data : root) as Record<string, unknown>;
+      const folios = (data.folios && typeof data.folios === "object" ? data.folios : data) as Record<string, unknown>;
+      const byTipoDte = (Array.isArray(folios.byTipoDte) ? folios.byTipoDte : Array.isArray(data.byTipoDte) ? data.byTipoDte : []) as Array<Record<string, unknown>>;
+      const ranges = (Array.isArray(folios.ranges) ? folios.ranges : Array.isArray(data.ranges) ? data.ranges : []) as Array<Record<string, unknown>>;
 
       return [33, 39, 61].map((tipoDte) => {
-        const found = rawList.find((item) => Number(item?.tipoDte ?? item?.tipo_dte) === tipoDte) as Record<string, unknown> | undefined;
-        const tipoNombre = tipoDte === 33 ? "Factura Electrónica" : tipoDte === 39 ? "Boleta Electrónica" : "Nota de Crédito";
-        const disponibles = Number(found?.disponibles ?? found?.cantidadDisponible ?? found?.available ?? 0);
-        const alerta: "normal" | "low" | "critical" = disponibles <= 0 ? "critical" : disponibles <= 10 ? "low" : "normal";
+        const foundTipo = byTipoDte.find(
+          (item) => Number(item?.tipoDte ?? item?.tipo_dte) === tipoDte
+        );
+
+        const tipoRanges = ranges.filter(
+          (item) => Number(item?.tipoDte ?? item?.tipo_dte) === tipoDte
+        );
+
+        const activeRange = tipoRanges.find((r) => !r.isExhausted) || tipoRanges[tipoRanges.length - 1];
+
+        const minDesde = tipoRanges.length
+          ? Math.min(...tipoRanges.map((r) => Number(r.rangoDesde || r.desde || 0)).filter((n) => n > 0))
+          : undefined;
+        const maxHasta = tipoRanges.length
+          ? Math.max(...tipoRanges.map((r) => Number(r.rangoHasta || r.hasta || 0)).filter((n) => n > 0))
+          : undefined;
+
+        const tipoNombre =
+          tipoDte === 33
+            ? "Factura Electrónica"
+            : tipoDte === 39
+              ? "Boleta Electrónica"
+              : "Nota de Crédito";
+
+        const disponibles = Number(
+          foundTipo?.remaining ?? foundTipo?.disponibles ?? foundTipo?.cantidadDisponible ?? 0
+        );
+
+        const alerta: "normal" | "low" | "critical" =
+          disponibles <= 0 ? "critical" : disponibles <= 10 ? "low" : "normal";
 
         return {
           tipoDte,
           tipoNombre,
           disponibles,
-          rangoDesde: found?.rangoDesde ? Number(found.rangoDesde) : undefined,
-          rangoHasta: found?.rangoHasta ? Number(found.rangoHasta) : undefined,
-          ultimoUtilizado: found?.ultimoUtilizado ? Number(found.ultimoUtilizado) : undefined,
-          vencimientoCaf: typeof found?.vencimientoCaf === "string" ? found.vencimientoCaf : null,
+          rangoDesde: isFinite(minDesde ?? NaN) ? minDesde : undefined,
+          rangoHasta: isFinite(maxHasta ?? NaN) ? maxHasta : undefined,
+          ultimoUtilizado: activeRange?.nextFolio
+            ? Number(activeRange.nextFolio)
+            : activeRange?.currentFolio
+              ? Number(activeRange.currentFolio)
+              : undefined,
+          vencimientoCaf: null,
           alerta,
         };
       });
@@ -207,19 +238,26 @@ export class IntellyDteHttpGateway implements IntellyDteGateway {
   }
 
   async requestFolios(command: RequestFoliosCommand): Promise<RequestFoliosResult> {
-    const result = await this.request("/folios/request", {
-      method: "POST",
-      headers: {
-        "x-api-key": this.tenantApiKey,
-        ...(this.tenantRut ? { "x-tenant-rut": this.tenantRut } : {}),
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        tipoDte: command.tipoDte,
-        cantidad: command.cantidad,
-      }),
-    });
+    if (!this.tenantRut) {
+      throw new AppError("INTELLYDTE_NOT_CONFIGURED", "Configura el RUT de la empresa para solicitar folios al SII.", 503);
+    }
+    const apiKey = this.systemApiKey || this.tenantApiKey;
+    const result = await this.request(
+      `/integrations/tenants/${encodeURIComponent(this.tenantRut)}/caf/solicitar`,
+      {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "x-tenant-rut": this.tenantRut,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          tipoDte: command.tipoDte,
+          cantidad: command.cantidad,
+        }),
+      }
+    );
 
     if ("error" in result) {
       throw new AppError("INTELLYDTE_UNAVAILABLE", "No fue posible conectar con IntellyDTE para solicitar folios.", 502);

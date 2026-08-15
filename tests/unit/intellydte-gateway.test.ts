@@ -68,20 +68,61 @@ describe("typed IntellyDTE gateway", () => {
 
   it("queries folios status across DTE 33, 39, and 61 and requests new folios from IntellyDTE", async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(response({ success: true, data: [{ tipoDte: 33, disponibles: 42, rangoDesde: 1, rangoHasta: 100 }, { tipoDte: 39, disponibles: 5, rangoDesde: 101, rangoHasta: 200 }, { tipoDte: 61, disponibles: 0 }] }))
-      .mockResolvedValueOnce(response({ success: true, data: { tipoDte: 33, cantidadOtorgada: 50, rangoDesde: 101, rangoHasta: 150, message: "CAF descargado" } }));
+      .mockResolvedValueOnce(response({
+        success: true,
+        data: {
+          folios: {
+            byTipoDte: [
+              { tipoDte: "33", remaining: 42, nextFolio: 22 },
+              { tipoDte: "39", remaining: 5, nextFolio: 5069 },
+              { tipoDte: "61", remaining: 0, nextFolio: null },
+            ],
+            ranges: [
+              { tipoDte: 33, rangoDesde: 1, rangoHasta: 100, isExhausted: false },
+              { tipoDte: 39, rangoDesde: 101, rangoHasta: 200, isExhausted: false },
+              { tipoDte: 61, rangoDesde: 1, rangoHasta: 1, isExhausted: true },
+            ],
+          },
+        },
+      }))
+      .mockResolvedValueOnce(response({
+        success: true,
+        data: { tipoDte: 33, cantidadOtorgada: 50, rangoDesde: 101, rangoHasta: 150, message: "CAF descargado" },
+      }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const gateway = new IntellyDteHttpGateway({ baseUrl: "https://dte.example", tenantApiKey: "ik_tenant", systemApiKey: "isk_system", tenantRut: "76123456-7", emissionMode: "async", timeoutMs: 1000 });
+    const gateway = new IntellyDteHttpGateway({
+      baseUrl: "https://dte.example",
+      tenantApiKey: "ik_tenant",
+      systemApiKey: "isk_system",
+      tenantRut: "76123456-7",
+      emissionMode: "async",
+      timeoutMs: 1000,
+    });
+
     const folios = await gateway.getFoliosStatus();
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://dte.example/api/v1/folios/status", expect.objectContaining({ method: "GET", headers: expect.objectContaining({ "x-api-key": "ik_tenant" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://dte.example/api/v1/integrations/tenants/76123456-7/folios",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({ "x-api-key": "isk_system", "x-tenant-rut": "76123456-7" }),
+      })
+    );
     expect(folios).toHaveLength(3);
     expect(folios.find((f) => f.tipoDte === 33)).toMatchObject({ disponibles: 42, alerta: "normal" });
     expect(folios.find((f) => f.tipoDte === 39)).toMatchObject({ disponibles: 5, alerta: "low" });
     expect(folios.find((f) => f.tipoDte === 61)).toMatchObject({ disponibles: 0, alerta: "critical" });
 
     const requestResult = await gateway.requestFolios({ tipoDte: 33, cantidad: 50 });
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://dte.example/api/v1/folios/request", expect.objectContaining({ method: "POST", body: JSON.stringify({ tipoDte: 33, cantidad: 50 }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://dte.example/api/v1/integrations/tenants/76123456-7/caf/solicitar",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ tipoDte: 33, cantidad: 50 }),
+      })
+    );
     expect(requestResult).toMatchObject({ ok: true, tipoDte: 33, cantidadOtorgada: 50, rangoDesde: 101, rangoHasta: 150 });
   });
 });
