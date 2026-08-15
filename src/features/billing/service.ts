@@ -103,6 +103,7 @@ export async function sendInvoiceEmail(invoiceId: string, actorUserId: string, t
   const [invoice] = await db
     .select({
       id: invoices.id,
+      paymentOrderId: invoices.paymentOrderId,
       status: invoices.status,
       folio: invoices.folio,
       orderNumber: paymentOrders.number,
@@ -119,7 +120,21 @@ export async function sendInvoiceEmail(invoiceId: string, actorUserId: string, t
   if (!invoice) throw new AppError("INVOICE_NOT_FOUND", "Factura no encontrada.", 404);
   if (invoice.status !== "issued") throw new AppError("INVOICE_NOT_ISSUED", "La factura debe estar emitida para enviarla por correo.");
 
-  const recipient = (targetEmail?.trim() || invoice.clientEmail).trim().toLowerCase();
+  let recipient = targetEmail?.trim()?.toLowerCase();
+  if (!recipient) {
+    const [latestDelivery] = await db
+      .select({ recipient: orderEmailDeliveries.recipient })
+      .from(orderEmailDeliveries)
+      .where(and(
+        eq(orderEmailDeliveries.paymentOrderId, invoice.paymentOrderId),
+        eq(orderEmailDeliveries.status, "sent")
+      ))
+      .orderBy(desc(orderEmailDeliveries.createdAt))
+      .limit(1)
+      .execute();
+    recipient = (latestDelivery?.recipient || invoice.clientEmail).trim().toLowerCase();
+  }
+
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
     throw new AppError("INVOICE_EMAIL_INVALID", "El correo de destino no es válido.");
   }

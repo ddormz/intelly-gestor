@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
+import { and, desc, eq } from "drizzle-orm";
+import { getDb } from "@/db";
+import { invoices, orderEmailDeliveries } from "@/db/schema";
 import { commitWebpayTransaction } from "@/features/integrations/webpay";
 import { markOrderPaid } from "@/features/orders/service";
 import { findPublicOrder } from "@/features/orders/service";
+import { issueInvoice } from "@/features/billing/emission";
+import { sendInvoiceEmail } from "@/features/billing/service";
 import { writeAudit } from "@/features/audit/service";
 import { getEnv } from "@/lib/env";
 
@@ -52,6 +57,50 @@ async function handleReturn(request: Request) {
             buyOrder: result.buyOrder,
           },
         });
+
+        // Auto-emisión de Factura Electrónica y auto-envío por correo
+        try {
+          const emissionResult = await issueInvoice(order.id, "system-webpay");
+          if (emissionResult.kind === "issued") {
+            const db = getDb();
+            const [createdInvoice] = await db
+              .select({ id: invoices.id })
+              .from(invoices)
+              .where(eq(invoices.paymentOrderId, order.id))
+              .orderBy(desc(invoices.createdAt))
+              .limit(1)
+              .execute();
+
+            // Priorizar el correo al que se le despachó la orden originalmente
+            const [latestDelivery] = await db
+              .select({ recipient: orderEmailDeliveries.recipient })
+              .from(orderEmailDeliveries)
+              .where(and(
+                eq(orderEmailDeliveries.paymentOrderId, order.id),
+                eq(orderEmailDeliveries.status, "sent")
+              ))
+              .orderBy(desc(orderEmailDeliveries.createdAt))
+              .limit(1)
+              .execute();
+
+            const targetEmail = latestDelivery?.recipient || order.clientEmail;
+
+            if (createdInvoice && targetEmail) {
+              await sendInvoiceEmail(createdInvoice.id, "system-webpay", targetEmail);
+            }
+          }
+        } catch (autoFiscalError) {
+          console.error("Auto invoice / email error after Webpay payment:", autoFiscalError);
+          await writeAudit({
+            actorType: "system",
+            action: "order.auto_invoice_failed",
+            entityType: "payment_order",
+            entityId: order.id,
+            metadata: {
+              error: autoFiscalError instanceof Error ? autoFiscalError.message : "Error al auto-emitir factura",
+            },
+          });
+        }
       }
 
       return NextResponse.redirect(
