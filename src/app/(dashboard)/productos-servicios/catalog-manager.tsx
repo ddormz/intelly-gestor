@@ -14,7 +14,7 @@ function CatalogFields({ item, errors }: { item?: CatalogListItem; errors?: Reco
   return <>
     {item ? <input type="hidden" name="id" value={item.id} /> : null}
     <TypeSelector name="type" label="Tipo" options={[{ value: "service", label: "Servicio" }, { value: "product", label: "Producto" }, { value: "project", label: "Proyecto" }]} value={type} onChange={(value) => setType(value as CatalogListItem["type"])} required error={errors?.type?.[0]} />
-    <Field label="Código" error={errors?.code?.[0]} hint={item ? "Código histórico conservado por el servidor." : "El servidor lo genera al guardar."}><Input readOnly value={item?.code ?? ""} placeholder={item ? undefined : "Se genera al guardar"} /></Field>
+    {item ? <Field label="Código" error={errors?.code?.[0]} hint="Código histórico conservado por el servidor."><Input readOnly value={item.code} /></Field> : null}
     <Field label="Nombre" error={errors?.name?.[0]}><Input required name="name" defaultValue={item?.name ?? ""} placeholder="Implementación mensual" /></Field>
     <Field label="Descripción" error={errors?.description?.[0]}><textarea name="description" defaultValue={item?.description ?? ""} className="field min-h-24" placeholder="Describe el alcance incluido para el cliente." /></Field>
     <MoneyInput name="unitPrice" label="Precio CLP" required defaultValue={item?.unitPrice ? Number(item.unitPrice) : undefined} error={errors?.unitPrice?.[0]} />

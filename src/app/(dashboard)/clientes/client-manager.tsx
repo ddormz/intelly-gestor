@@ -22,7 +22,7 @@ export type ClientListItem = {
   status: "active" | "inactive";
 };
 
-function ClientFields({ item, errors }: { item?: ClientListItem; errors?: Record<string, string[]> }) {
+export function ClientFields({ item, errors }: { item?: ClientListItem; errors?: Record<string, string[]> }) {
   const [kind, setKind] = useState(item?.kind ?? "company");
   const [taxId, setTaxId] = useState(item?.taxId ?? "");
   const [legalName, setLegalName] = useState(item?.legalName ?? "");

@@ -274,14 +274,73 @@ export async function markOrderPaid(id: string, userId: string, idempotencyKey: 
 }
 
 export async function findPublicOrder(token: string) {
-  const [row] = await getDb().select({ number: paymentOrders.number, status: paymentOrders.status, total: paymentOrders.total, dueAt: paymentOrders.dueAt, clientName: clients.legalName, publicTokenHash: paymentOrders.publicTokenHash, publicExpiresAt: paymentOrders.publicExpiresAt, publicRevokedAt: paymentOrders.publicRevokedAt })
+  const [row] = await getDb().select({
+    id: paymentOrders.id,
+    number: paymentOrders.number,
+    status: paymentOrders.status,
+    subtotal: paymentOrders.subtotal,
+    discountTotal: paymentOrders.discountTotal,
+    discountPercent: paymentOrders.discountPercent,
+    taxTotal: paymentOrders.taxTotal,
+    total: paymentOrders.total,
+    currency: paymentOrders.currency,
+    dueAt: paymentOrders.dueAt,
+    issuedAt: paymentOrders.issuedAt,
+    paidAt: paymentOrders.paidAt,
+    notes: paymentOrders.notes,
+    clientName: clients.legalName,
+    clientTaxId: clients.taxId,
+    clientEmail: clients.email,
+    clientAddress: clients.addressLine,
+    clientCommune: clients.commune,
+    clientCity: clients.city,
+    publicTokenHash: paymentOrders.publicTokenHash,
+    publicExpiresAt: paymentOrders.publicExpiresAt,
+    publicRevokedAt: paymentOrders.publicRevokedAt,
+  })
     .from(paymentOrders).innerJoin(clients, eq(clients.id, paymentOrders.clientId))
     .where(and(
       eq(paymentOrders.publicTokenHash, hashToken(token)),
-      inArray(paymentOrders.status, ["issued", "paid", "invoiced"]),
+      inArray(paymentOrders.status, ["issued", "paid", "invoiced", "draft"]),
       gt(paymentOrders.publicExpiresAt, new Date()),
       isNull(paymentOrders.publicRevokedAt),
     )).limit(1).execute();
   if (!row || !isPublicOrderAccessible(row, token)) return null;
-  return { number: row.number, status: row.status, total: row.total, dueAt: row.dueAt, clientName: row.clientName };
+
+  const lines = row.id
+    ? (await getDb().select().from(paymentOrderLines).where(eq(paymentOrderLines.paymentOrderId, row.id)).orderBy(asc(paymentOrderLines.sortOrder)).execute()) ?? []
+    : [];
+
+  return {
+    id: row.id,
+    number: row.number,
+    status: row.status,
+    subtotal: row.subtotal,
+    discountTotal: row.discountTotal,
+    discountPercent: row.discountPercent,
+    taxTotal: row.taxTotal,
+    total: row.total,
+    currency: row.currency,
+    dueAt: row.dueAt,
+    issuedAt: row.issuedAt,
+    paidAt: row.paidAt,
+    notes: row.notes,
+    clientName: row.clientName,
+    clientTaxId: row.clientTaxId,
+    clientEmail: row.clientEmail,
+    clientAddress: row.clientAddress,
+    clientCommune: row.clientCommune,
+    clientCity: row.clientCity,
+    lines: lines.map((l) => ({
+      id: l.id,
+      code: l.code,
+      description: l.description,
+      quantity: Number(l.quantity),
+      unitPrice: Number(l.unitPrice),
+      taxRate: Number(l.taxRate),
+      subtotal: Number(l.subtotal),
+      taxAmount: Number(l.taxAmount),
+      total: Number(l.total),
+    })),
+  };
 }

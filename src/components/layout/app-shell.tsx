@@ -3,7 +3,22 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Boxes, CircleUserRound, CreditCard, FileText, Gauge, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PlugZap, Users, X } from "lucide-react";
+import {
+  Boxes,
+  Building2,
+  CircleUserRound,
+  CreditCard,
+  FileText,
+  Gauge,
+  LogOut,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PlugZap,
+  ScrollText,
+  Users,
+  X,
+} from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { IconButton, SubmitButton } from "@/components/ui";
 import { logoutAction } from "@/features/auth/actions";
@@ -16,6 +31,8 @@ const links = [
   { href: "/facturacion", label: "Facturación", icon: FileText },
   { href: "/integraciones", label: "Integraciones", icon: PlugZap },
   { href: "/usuarios", label: "Usuarios", icon: CircleUserRound, adminOnly: true },
+  { href: "/empresa", label: "Empresa", icon: Building2, adminOnly: true },
+  { href: "/auditoria", label: "Logs del Sistema", icon: ScrollText, adminOnly: true },
 ] as const;
 
 export function getNavigationLinks(role: string) {
@@ -44,23 +61,17 @@ export function AppShell({ user, children }: { user: { name: string; role: strin
       <BrandLogo priority variant={compact ? "mark" : "full"} className={compact ? "size-11" : "h-auto w-[150px] py-3"} />
     </div>
     {!compact ? <div className="px-5 pt-5"><p className="text-[10px] font-extrabold uppercase tracking-[.18em] text-[var(--brand-cyan)]">Gestión comercial</p></div> : null}
-    <nav aria-label="Navegación principal" className="flex-1 space-y-1.5 p-3">
+    <nav aria-label="Navegación principal" className="flex-1 space-y-1.5 p-3 overflow-y-auto">
       {getNavigationLinks(user.role).map(({ href, label, icon: Icon }) => {
         const active = href === "/" ? path === "/" : path.startsWith(href);
-         return <Link key={href} href={href} title={compact ? label : undefined} data-tooltip={compact ? label : undefined} onClick={() => setMobileOpen(false)} aria-current={active ? "page" : undefined} className={`group flex min-h-11 items-center rounded-xl text-sm font-semibold ${compact ? "justify-center px-2" : "gap-3 px-3"} ${active ? "bg-[rgb(20_208_246_/_0.14)] text-[var(--brand-navy)] shadow-[inset_3px_0_0_var(--brand-cyan)]" : "text-[var(--color-muted-foreground)] hover:bg-[var(--color-background-soft)] hover:text-[var(--brand-navy)]"}`}>
+        return <Link key={href} href={href} title={compact ? label : undefined} data-tooltip={compact ? label : undefined} onClick={() => setMobileOpen(false)} aria-current={active ? "page" : undefined} className={`group flex min-h-11 items-center rounded-xl text-sm font-semibold ${compact ? "justify-center px-2" : "gap-3 px-3"} ${active ? "bg-[rgb(20_208_246_/_0.14)] text-[var(--brand-navy)] shadow-[inset_3px_0_0_var(--brand-cyan)]" : "text-[var(--color-muted-foreground)] hover:bg-[var(--color-background-soft)] hover:text-[var(--brand-navy)]"}`}>
           <Icon aria-hidden="true" size={20} strokeWidth={active ? 2.2 : 1.8} className={active ? "text-[var(--brand-blue)]" : "text-[var(--color-muted-foreground)] group-hover:text-[var(--brand-blue)]"} />
           <span className={compact ? "sr-only" : ""}>{label}</span>
         </Link>;
       })}
     </nav>
-    <div className="border-t border-[var(--color-border)] p-3">
-      <div className={`mb-2 flex items-center rounded-xl bg-[var(--color-background-soft)] ${compact ? "justify-center p-2" : "gap-3 p-3"}`} title={compact ? `${user.name} · ${user.role}` : undefined}>
-        <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[rgb(20_208_246_/_0.14)] text-[var(--brand-navy)]"><CircleUserRound size={20} /></div>
-        {!compact ? <div className="min-w-0"><p className="truncate text-sm font-semibold text-[var(--brand-deep)]">{user.name}</p><p className="text-xs capitalize text-[var(--color-muted-foreground)]">{user.role}</p></div> : null}
-      </div>
-      <form action={logoutAction} className="flex justify-center">
-        <SubmitButton variant="secondary" iconOnly label="Cerrar sesión" icon={<LogOut size={17} />} pendingLabel="Cerrando sesión…" />
-      </form>
+    <div className="border-t border-[var(--color-border)] p-3 text-center">
+      <p className="text-[11px] font-semibold text-[var(--color-muted-foreground)]">Intelly Gestor v1.0</p>
     </div>
   </>;
 
@@ -70,14 +81,25 @@ export function AppShell({ user, children }: { user: { name: string; role: strin
     {mobileOpen ? <div className="fixed inset-0 z-50 lg:hidden">
       <button aria-label="Cerrar menú" className="absolute inset-0 bg-[var(--brand-deep)]/65 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
       <aside className="shell-sidebar relative flex h-full w-[min(88vw,320px)] flex-col shadow-2xl">
-         <IconButton label="Cerrar menú" icon={<X />} onClick={() => setMobileOpen(false)} className="!absolute right-3 top-3 z-10 !border-0 !bg-transparent !shadow-none hover:!bg-[var(--color-muted)]" />
+        <IconButton label="Cerrar menú" icon={<X />} onClick={() => setMobileOpen(false)} className="!absolute right-3 top-3 z-10 !border-0 !bg-transparent !shadow-none hover:!bg-[var(--color-muted)]" />
         {navigation(false)}
       </aside>
     </div> : null}
     <div className="shell-main">
-      <header className="shell-topbar sticky top-0 z-30 flex h-17 items-center px-4 lg:px-8">
-         <IconButton label="Abrir menú" icon={<Menu />} aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)} className="!grid !h-11 !w-11 lg:!hidden" />
-         <IconButton label={collapsed ? "Expandir navegación" : "Colapsar navegación"} icon={collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />} aria-expanded={!collapsed} onClick={toggleSidebar} className="!hidden !h-10 !w-10 lg:!grid" />
+      <header className="shell-topbar sticky top-0 z-30 flex h-17 items-center justify-between px-4 lg:px-8">
+        <div className="flex items-center gap-2">
+          <IconButton label="Abrir menú" icon={<Menu />} aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)} className="!grid !h-11 !w-11 lg:!hidden" />
+          <IconButton label={collapsed ? "Expandir navegación" : "Colapsar navegación"} icon={collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />} aria-expanded={!collapsed} onClick={toggleSidebar} className="!hidden !h-10 !w-10 lg:!grid" />
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 rounded-xl bg-[var(--color-background-soft)] px-3 py-1.5 border border-[var(--color-border)]">
+            <div className="grid size-7 shrink-0 place-items-center rounded-lg bg-[rgb(20_208_246_/_0.14)] text-[var(--brand-navy)]"><CircleUserRound size={16} /></div>
+            <div className="hidden sm:block text-left"><p className="truncate text-xs font-bold text-[var(--brand-deep)] leading-tight">{user.name}</p><p className="text-[10px] capitalize text-[var(--color-muted-foreground)] leading-tight">{user.role}</p></div>
+          </div>
+          <form action={logoutAction}>
+            <SubmitButton variant="secondary" iconOnly label="Cerrar sesión" icon={<LogOut size={16} />} pendingLabel="Cerrando sesión…" />
+          </form>
+        </div>
       </header>
       <main id="contenido-principal" tabIndex={-1} className="mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8">{children}</main>
     </div>

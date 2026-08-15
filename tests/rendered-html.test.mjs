@@ -134,8 +134,7 @@ test("exposes project catalog controls and active defaults", async () => {
   ]);
   assert.match(page, /allowedTabs: \["active", "inactive", "all"\], defaultTab: "active"/);
   assert.match(manager, /value: "project", label: "Proyectos"/);
-  assert.match(manager, /type === "project"/);
-  assert.match(manager, /placeholder=\{item \? undefined : "Se genera al guardar"\}/);
+  assert.match(manager, /item \? <Field label="Código"/);
   assert.doesNotMatch(manager, /generateCatalogCode/);
   assert.doesNotMatch(manager, /<Card/);
 });

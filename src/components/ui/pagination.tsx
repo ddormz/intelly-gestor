@@ -38,7 +38,7 @@ export function Pagination({ page, pageSize, total, query }: PaginationProps) {
           href={href}
           scroll={false}
           aria-current={isActive ? "page" : undefined}
-          className={`rounded-lg px-2.5 py-1 text-sm font-bold transition-colors ${isActive ? "bg-[var(--brand-royal)] text-white shadow-sm ring-1 ring-[var(--brand-blue)]" : "text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--brand-deep)]"}`}
+          className={`rounded-lg px-2.5 py-1 text-sm font-extrabold transition-colors ${isActive ? "bg-[var(--brand-cyan)] text-[var(--brand-deep)] shadow-sm ring-1 ring-[var(--brand-cyan)]" : "text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--brand-deep)]"}`}
         >{size}</Link>;
       })}
       <IconButton

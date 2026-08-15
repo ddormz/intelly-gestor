@@ -16,17 +16,21 @@ type ActionModalProps = {
   variant?: "primary" | "secondary" | "danger";
   iconOnly?: boolean;
   action: (state: ActionState, formData: FormData) => Promise<ActionState>;
+  onSuccess?: (state: ActionState) => void;
   children: (state: ActionState) => ReactNode;
 };
 
 const initialState: ActionState = { status: "idle" };
 
-function ActionModalContent({ title, description, submitLabel, pendingLabel, action, children, onClose }: Omit<ActionModalProps, "triggerLabel" | "triggerIcon" | "variant" | "iconOnly"> & { onClose: () => void }) {
+function ActionModalContent({ title, description, submitLabel, pendingLabel, action, onSuccess, children, onClose }: Omit<ActionModalProps, "triggerLabel" | "triggerIcon" | "variant" | "iconOnly"> & { onClose: () => void }) {
   const [state, formAction, pending] = useActionState(action, initialState);
 
   useEffect(() => {
-    if (state.status === "success") onClose();
-  }, [state.status, onClose]);
+    if (state.status === "success") {
+      onSuccess?.(state);
+      onClose();
+    }
+  }, [state, onSuccess, onClose]);
 
   return <Modal open onClose={onClose} title={title} description={description} pending={pending}>
     <form action={formAction} className="grid gap-4" noValidate>

@@ -108,9 +108,34 @@ export async function createOrderPdfResponse(order: PaymentOrder): Promise<Respo
   });
 }
 
+import { getCompanySettings } from "@/features/company/service";
+
 export async function createOrderPdfBytes(order: PaymentOrder): Promise<Uint8Array> {
-  const logo = await readFile(resolve(process.cwd(), "public", "intelly-logo.png"));
-  const logoDataUrl = `data:image/png;base64,${logo.toString("base64")}`;
-  const pdf = buildOrderPdf({ order, settings: INTELLY_PDF_SETTINGS, logoDataUrl });
+  const company = await getCompanySettings();
+  const settings: CompanySettings = {
+    companyName: company.legalName || INTELLY_PDF_SETTINGS.companyName,
+    companyRut: company.rut || INTELLY_PDF_SETTINGS.companyRut,
+    businessLine: company.giro || "",
+    address: `${company.addressLine ?? ""}${company.commune ? `, ${company.commune}` : ""}`,
+    email: company.email || INTELLY_PDF_SETTINGS.email,
+    phone: company.phone || "",
+    bankName: company.bankName || INTELLY_PDF_SETTINGS.bankName,
+    accountType: company.bankAccountType || INTELLY_PDF_SETTINGS.accountType,
+    accountNumber: company.bankAccountNumber || INTELLY_PDF_SETTINGS.accountNumber,
+    accountHolder: company.bankAccountHolder || INTELLY_PDF_SETTINGS.accountHolder,
+    accountRut: company.bankAccountRut || INTELLY_PDF_SETTINGS.accountRut,
+    transferEmail: company.bankAccountEmail || company.email || INTELLY_PDF_SETTINGS.transferEmail,
+    paymentTerms: "",
+    paymentInstructions: "",
+    dueDays: 10,
+  };
+  let logoDataUrl = "";
+  try {
+    const logo = await readFile(resolve(process.cwd(), "public", "intelly-logo.png"));
+    logoDataUrl = `data:image/png;base64,${logo.toString("base64")}`;
+  } catch {
+    logoDataUrl = "";
+  }
+  const pdf = buildOrderPdf({ order, settings, logoDataUrl });
   return new Uint8Array(pdf.output("arraybuffer"));
 }

@@ -298,3 +298,26 @@ export const businessCounters = mysqlTable("business_counters", {
   name: varchar("name", { length: 40 }).primaryKey(),
   value: bigint("value", { mode: "bigint", unsigned: true }).notNull().default(sql`0`),
 });
+
+export const companySettings = mysqlTable("company_settings", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  rut: varchar("rut", { length: 20 }).notNull().default("76.123.456-7"),
+  legalName: varchar("legal_name", { length: 200 }).notNull().default("Intelly SpA"),
+  tradeName: varchar("trade_name", { length: 200 }).default("Intelly"),
+  giro: varchar("giro", { length: 200 }).default("Servicios Informáticos y Desarrollo de Software"),
+  addressLine: varchar("address_line", { length: 250 }).default("Av. Providencia 1234, Of. 501"),
+  commune: varchar("commune", { length: 100 }).default("Providencia"),
+  city: varchar("city", { length: 100 }).default("Santiago"),
+  region: varchar("region", { length: 100 }).default("Región Metropolitana"),
+  email: varchar("email", { length: 254 }).default("contacto@intelly.cl"),
+  phone: varchar("phone", { length: 50 }).default("+56 9 1234 5678"),
+  website: varchar("website", { length: 200 }).default("https://intelly.cl"),
+  bankName: varchar("bank_name", { length: 100 }).default("Banco Santander"),
+  bankAccountType: varchar("bank_account_type", { length: 50 }).default("Cuenta Corriente"),
+  bankAccountNumber: varchar("bank_account_number", { length: 50 }).default("12345678"),
+  bankAccountHolder: varchar("bank_account_holder", { length: 200 }).default("Intelly SpA"),
+  bankAccountRut: varchar("bank_account_rut", { length: 20 }).default("76.123.456-7"),
+  bankAccountEmail: varchar("bank_account_email", { length: 254 }).default("pagos@intelly.cl"),
+  updatedBy: varchar("updated_by", { length: 36 }).references(() => users.id),
+  ...timestamps,
+});

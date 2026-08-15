@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useActionState, useEffect, useState } from "react";
 import { Search, Trash2, UserRoundPlus } from "lucide-react";
-import { Alert, Badge, EmptyState, Field, IconButton, Input, PageHeader, TableShell } from "@/components/ui";
+import { ActionModal, Alert, Badge, EmptyState, Field, IconButton, Input, PageHeader, TableShell } from "@/components/ui";
+import { createClientAction } from "@/features/clients/actions";
+import { ClientFields } from "@/app/(dashboard)/clientes/client-manager";
 import { searchActiveCatalogAction, searchActiveClientsAction } from "@/features/orders/actions";
 import { calculateOrder } from "@/features/orders/domain";
 import { buildOrderCartPayload, type PosDraftLine } from "@/features/orders/pos";
@@ -111,7 +113,33 @@ export function OrderPos({ action, initial }: { action: (state: ActionState, for
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="space-y-6">
         <section className="surface rounded-[var(--radius-lg)] p-5 sm:p-6">
-          <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-lg font-bold text-[var(--brand-deep)]">1. Cliente</h2>{editable ? <Link className="text-sm font-semibold text-[var(--brand-royal)] hover:underline" href={`/clientes?returnTo=${encodeURIComponent(initial?.id ? `/ordenes/${initial.id}/editar` : "/ordenes/nueva")}`}><UserRoundPlus aria-hidden="true" className="mr-1 inline" size={16} />Crear cliente</Link> : null}</div>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-[var(--brand-deep)]">1. Cliente</h2>
+            {editable ? (
+              <ActionModal
+                triggerLabel="Crear cliente"
+                triggerIcon={<UserRoundPlus aria-hidden="true" className="mr-1 inline" size={16} />}
+                variant="secondary"
+                title="Nuevo cliente"
+                description="Completa los datos del cliente para seleccionarlo inmediatamente."
+                submitLabel="Guardar y seleccionar cliente"
+                pendingLabel="Guardando cliente…"
+                action={createClientAction}
+                onSuccess={(res) => {
+                  if (res.data?.id && typeof res.data.legalName === "string") {
+                    setClient({
+                      id: res.data.id,
+                      legalName: res.data.legalName,
+                      taxId: typeof res.data.taxId === "string" ? res.data.taxId : null,
+                      email: typeof res.data.email === "string" ? res.data.email : "",
+                    });
+                  }
+                }}
+              >
+                {(modalState) => <ClientFields errors={modalState.fieldErrors} />}
+              </ActionModal>
+            ) : null}
+          </div>
           <Field label="Buscar por RUT o nombre"><div className="relative"><Input disabled={!editable} value={clientQuery} onChange={(event) => setClientQuery(event.target.value)} placeholder="76.123.456-0 o nombre del cliente" aria-label="Buscar cliente" />{clientResults.length ? <ul className="absolute inset-x-0 top-full z-10 mt-1 rounded-md border border-[var(--color-border-strong)] bg-white p-1 shadow-lg">{clientResults.map((result) => <li key={result.id}><button disabled={!editable} type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-[var(--color-background-soft)]" onClick={() => { setClient(result); setClientQuery(""); setClientResults([]); }}>{result.legalName} · {result.taxId ?? "Sin RUT"}</button></li>)}</ul> : null}</div></Field>
           {client ? <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background-soft)] p-3"><div><p className="font-semibold text-[var(--brand-deep)]">{client.legalName}</p><p className="text-sm text-[var(--color-muted-foreground)]">{client.taxId ?? "Sin RUT"} · {client.email}</p></div><IconButton disabled={!editable} type="button" label="Quitar cliente" icon={<Trash2 size={16} />} variant="danger" onClick={() => setClient(null)} /></div> : <p className="mt-3 text-sm text-[var(--color-muted-foreground)]">Selecciona un cliente activo para continuar.</p>}
         </section>

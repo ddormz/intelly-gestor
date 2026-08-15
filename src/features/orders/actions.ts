@@ -81,9 +81,20 @@ export async function searchActiveCatalogAction(query: string) {
 }
 
 export async function issueOrderAction(_: ActionState, formData: FormData): Promise<ActionState> {
-  await enforceSameOrigin(); const user = await requireUser(); const id = String(formData.get("id"));
-  const token = await issueOrder(id, user.userId);
-  redirect(`/ordenes?publicLink=${encodeURIComponent(`/orden/${token}`)}`);
+  try {
+    await enforceSameOrigin();
+    const user = await requireUser();
+    const id = String(formData.get("id"));
+    const token = await issueOrder(id, user.userId);
+    revalidatePath("/ordenes");
+    return {
+      status: "success",
+      message: "Orden emitida correctamente.",
+      data: { publicLink: `/orden/${token}` },
+    };
+  } catch (error) {
+    return failure(error);
+  }
 }
 
 export async function markPaidAction(_: ActionState, formData: FormData): Promise<ActionState> {

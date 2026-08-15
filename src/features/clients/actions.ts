@@ -55,11 +55,26 @@ export async function createClientAction(_: ActionState, formData: FormData): Pr
     await getDb().insert(clients).values({ id: createdId, ...clientValues(parsed.data), countryCode: "CL" });
     await writeAudit({ actorUserId: user.userId, actorType: "user", action: "client.created", entityType: "client", entityId: createdId });
     revalidatePath("/clientes");
-    revalidatePath("/ordenes");
-  } catch (error) { return failure(error); }
-  const returnTo = String(formData.get("returnTo") ?? "");
-  if (returnTo.startsWith("/") && !returnTo.startsWith("//")) redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}clientId=${encodeURIComponent(createdId!)}`);
-  return { status: "success", message: "Cliente creado." };
+    const returnTo = String(formData.get("returnTo") ?? "");
+    if (returnTo.startsWith("/") && !returnTo.startsWith("//")) {
+      redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}clientId=${encodeURIComponent(createdId)}`);
+    }
+    return {
+      status: "success",
+      message: "Cliente creado.",
+      data: {
+        id: createdId,
+        legalName: parsed.data.legalName,
+        taxId: parsed.data.taxId ?? null,
+        email: parsed.data.email,
+      },
+    };
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error && String((error as { digest?: string }).digest).startsWith("NEXT_REDIRECT")) {
+      throw error;
+    }
+    return failure(error);
+  }
 }
 
 export async function updateClientAction(_: ActionState, formData: FormData): Promise<ActionState> {

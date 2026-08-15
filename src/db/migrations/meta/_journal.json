@@ -71,6 +71,13 @@
       "when": 1786805751128,
       "tag": "0009_broken_warbird",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1786810000000,
+      "tag": "0010_company_settings",
+      "breakpoints": true
     }
   ]
 }
