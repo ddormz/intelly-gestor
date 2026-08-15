@@ -9,13 +9,22 @@ const globalDb = globalThis as typeof globalThis & { intellyPool?: Pool; intelly
 export function getPool(): Pool {
   if (!globalDb.intellyPool) {
     const env = getEnv();
-    globalDb.intellyPool = mysql.createPool({
-      uri: env.DATABASE_URL,
-      connectionLimit: env.DB_POOL_LIMIT,
-      enableKeepAlive: true,
-      keepAliveInitialDelay: 10_000,
-      decimalNumbers: false,
-    });
+    try {
+      const url = new URL(env.DATABASE_URL);
+      globalDb.intellyPool = mysql.createPool({
+        host: url.hostname || "127.0.0.1",
+        port: url.port ? Number(url.port) : 3306,
+        user: decodeURIComponent(url.username),
+        password: decodeURIComponent(url.password),
+        database: url.pathname.replace(/^\//, ""),
+        connectionLimit: env.DB_POOL_LIMIT,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 10_000,
+        decimalNumbers: false,
+      });
+    } catch {
+      globalDb.intellyPool = mysql.createPool(env.DATABASE_URL);
+    }
   }
   return globalDb.intellyPool;
 }
@@ -29,7 +38,8 @@ export async function databaseHealth(): Promise<boolean> {
   try {
     await getPool().query("SELECT 1");
     return true;
-  } catch {
+  } catch (error) {
+    console.error("Database health query failed:", error);
     return false;
   }
 }
