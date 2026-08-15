@@ -59,6 +59,7 @@ export async function sendPasswordResetEmail(input: {
   const { transport, from, user } = getMailTransport();
   await transport.sendMail({
     from,
+    replyTo: user,
     to: input.to,
     envelope: { from: user, to: input.to },
     ...passwordResetEmail(input),
@@ -78,6 +79,7 @@ export async function sendOrderMessage(input: {
   const { transport, from, user } = getMailTransport();
   await transport.sendMail({
     from,
+    replyTo: user,
     to: input.to,
     envelope: { from: user, to: input.to },
     ...orderEmail(input),
@@ -121,6 +123,7 @@ export async function sendInvoiceMessage(input: {
 
   await transport.sendMail({
     from,
+    replyTo: user,
     to: input.to,
     envelope: { from: user, to: input.to },
     ...invoiceEmail(input),
