@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { IconButton } from "./icon-button";
 
 type ModalProps = {
   open: boolean;
@@ -51,7 +52,7 @@ export function Modal({ open, onClose, title, description, pending = false, chil
           <h2 id={titleId} className="text-xl font-bold text-[var(--brand-deep)]">{title}</h2>
           {description ? <p id={descriptionId} className="mt-1 text-sm text-[var(--color-muted-foreground)]">{description}</p> : null}
         </div>
-        <button type="button" disabled={pending} aria-label="Cerrar modal" onClick={onClose} className="app-modal-close"><X size={20} /></button>
+        <IconButton type="button" disabled={pending} label="Cerrar modal" icon={<X size={20} />} onClick={onClose} className="app-modal-close" />
       </header>
       <div className="app-modal-body">{children}</div>
     </div>

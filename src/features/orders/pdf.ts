@@ -8,7 +8,9 @@ export type OrderPdfHeader = {
   status: string;
   subtotal: string;
   discountTotal: string;
+  discountReason?: string | null;
   taxTotal: string;
+  total?: string;
   createdAt: Date;
   issuedAt: Date | null;
   dueAt: Date | null;
@@ -23,6 +25,10 @@ export type OrderPdfLine = {
   description: string;
   quantity: string;
   subtotal: string;
+  discountAmount?: string;
+  taxRate?: string;
+  taxAmount?: string;
+  total?: string;
 };
 
 export const INTELLY_PDF_SETTINGS: CompanySettings = {
@@ -51,6 +57,16 @@ export function toLegacyPaymentOrder(header: OrderPdfHeader, lines: OrderPdfLine
   const lineSubtotal = lines.reduce((sum, line) => sum + Number(line.subtotal), 0);
   const discount = Number(header.discountTotal);
   const discountPercent = lineSubtotal > 0 ? Math.min(100, Math.max(0, discount / lineSubtotal * 100)) : 0;
+  const persistedLines = lines.map((line) => {
+    const amount = Number(line.subtotal);
+    const discountAmount = Number(line.discountAmount ?? "0");
+    const netAmount = Math.max(0, amount - discountAmount);
+    const taxRate = Number(line.taxRate ?? "0");
+    const taxAmount = Number(line.taxAmount ?? "0");
+    const total = Number(line.total ?? String(netAmount + taxAmount));
+    return { amount, discountAmount, netAmount, taxRate, taxAmount, total, taxable: taxRate > 0, persisted: line.discountAmount !== undefined && line.taxRate !== undefined && line.taxAmount !== undefined && line.total !== undefined };
+  });
+  const hasPersistedTotals = header.total !== undefined && persistedLines.every((line) => line.persisted);
 
   return {
     id: header.id,
@@ -64,24 +80,25 @@ export function toLegacyPaymentOrder(header: OrderPdfHeader, lines: OrderPdfLine
     serviceType: "custom",
     invoice: Number(header.taxTotal) > 0,
     discountPercent,
-    discountReason: discount > 0 ? "Descuento aplicado a la orden" : "",
-    items: lines.map((line) => ({
+    discountReason: header.discountReason ?? (discount > 0 ? "Descuento aplicado a la orden" : ""),
+    ...(hasPersistedTotals ? { subtotal: Number(header.subtotal), discountTotal: discount, taxTotal: Number(header.taxTotal), total: Number(header.total) } : {}),
+    items: lines.map((line, index) => ({
       id: line.id,
       name: line.description,
       description: `${line.code ? `${line.code} · ` : ""}Cantidad: ${Number(line.quantity).toLocaleString("es-CL", { maximumFractionDigits: 3 })}`,
-      amount: Number(line.subtotal),
+      amount: persistedLines[index]!.amount,
+      ...(persistedLines[index]!.persisted ? { discountAmount: persistedLines[index]!.discountAmount, netAmount: persistedLines[index]!.netAmount, taxRate: persistedLines[index]!.taxRate, taxAmount: persistedLines[index]!.taxAmount, total: persistedLines[index]!.total, taxable: persistedLines[index]!.taxable } : {}),
     })),
     createdAt: header.createdAt.toISOString(),
   };
 }
 
 export async function createOrderPdfResponse(order: PaymentOrder): Promise<Response> {
-  const logo = await readFile(resolve(process.cwd(), "public", "intelly-logo.png"));
-  const logoDataUrl = `data:image/png;base64,${logo.toString("base64")}`;
-  const pdf = buildOrderPdf({ order, settings: INTELLY_PDF_SETTINGS, logoDataUrl });
-  const body = new Uint8Array(pdf.output("arraybuffer"));
+  const body = await createOrderPdfBytes(order);
+  const responseBody = new ArrayBuffer(body.byteLength);
+  new Uint8Array(responseBody).set(body);
   const filename = `orden-pago-${order.number.replace(/[^A-Za-z0-9_-]/g, "-")}.pdf`;
-  return new Response(body, {
+  return new Response(responseBody, {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename="${filename}"`,
@@ -89,4 +106,11 @@ export async function createOrderPdfResponse(order: PaymentOrder): Promise<Respo
       "X-Content-Type-Options": "nosniff",
     },
   });
+}
+
+export async function createOrderPdfBytes(order: PaymentOrder): Promise<Uint8Array> {
+  const logo = await readFile(resolve(process.cwd(), "public", "intelly-logo.png"));
+  const logoDataUrl = `data:image/png;base64,${logo.toString("base64")}`;
+  const pdf = buildOrderPdf({ order, settings: INTELLY_PDF_SETTINGS, logoDataUrl });
+  return new Uint8Array(pdf.output("arraybuffer"));
 }

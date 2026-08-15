@@ -8,6 +8,12 @@ export type OrderItem = {
   name: string;
   description: string;
   amount: number;
+  discountAmount?: number;
+  netAmount?: number;
+  taxRate?: number;
+  taxAmount?: number;
+  total?: number;
+  taxable?: boolean;
 };
 
 export type CompanySettings = {
@@ -42,6 +48,12 @@ export type PaymentOrder = {
   discountPercent: number;
   discountReason: string;
   items: OrderItem[];
+  subtotal?: number;
+  discountTotal?: number;
+  taxableBase?: number;
+  exemptBase?: number;
+  taxTotal?: number;
+  total?: number;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -84,6 +96,40 @@ export const formatDate = (value: string) => {
 const safe = (value: string, fallback = "No informado") =>
   value.trim() || fallback;
 
+export type CommercialPdfTotals = {
+  subtotal: number;
+  discount: number;
+  taxableBase: number;
+  exemptBase: number;
+  tax: number;
+  total: number;
+};
+
+function hasPersistedLineValues(item: OrderItem): boolean {
+  return [item.discountAmount, item.netAmount, item.taxRate, item.taxAmount, item.total, item.taxable].every((value) => value !== undefined && Number.isFinite(Number(value)));
+}
+
+export function resolveCommercialTotals(order: PaymentOrder): CommercialPdfTotals {
+  const persisted = [order.subtotal, order.discountTotal, order.taxTotal, order.total].every((value) => value !== undefined && Number.isFinite(Number(value))) && order.items.every(hasPersistedLineValues);
+  if (persisted) {
+    return {
+      subtotal: Math.round(Number(order.subtotal)),
+      discount: Math.round(Number(order.discountTotal)),
+      taxableBase: order.items.filter((item) => item.taxable).reduce((sum, item) => sum + Math.round(Number(item.netAmount)), 0),
+      exemptBase: order.items.filter((item) => !item.taxable).reduce((sum, item) => sum + Math.round(Number(item.netAmount)), 0),
+      tax: Math.round(Number(order.taxTotal)),
+      total: Math.round(Number(order.total)),
+    };
+  }
+
+  const subtotal = order.items.reduce((sum, item) => sum + Math.round(item.amount || 0), 0);
+  const discountPercent = Math.min(100, Math.max(0, Number(order.discountPercent) || 0));
+  const discount = Math.round(subtotal * (discountPercent / 100));
+  const discountedSubtotal = Math.max(0, subtotal - discount);
+  const tax = order.invoice ? Math.round(discountedSubtotal * 0.19) : 0;
+  return { subtotal, discount, taxableBase: order.invoice ? discountedSubtotal : 0, exemptBase: order.invoice ? 0 : discountedSubtotal, tax, total: discountedSubtotal + tax };
+}
+
 export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
   const doc = new jsPDF({
     orientation: "portrait",
@@ -96,18 +142,12 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 16;
   const contentWidth = pageWidth - margin * 2;
-  const subtotal = order.items.reduce(
-    (sum, item) => sum + Math.round(item.amount || 0),
-    0,
-  );
-  const discountPercent = Math.min(
-    100,
-    Math.max(0, Number(order.discountPercent) || 0),
-  );
-  const discount = Math.round(subtotal * (discountPercent / 100));
+  const totals = resolveCommercialTotals(order);
+  const { subtotal, discount, taxableBase, exemptBase, tax, total } = totals;
+  const discountPercent = Math.min(100, Math.max(0, Number(order.discountPercent) || (subtotal > 0 ? discount / subtotal * 100 : 0)));
   const discountedSubtotal = Math.max(0, subtotal - discount);
-  const tax = order.invoice ? Math.round(discountedSubtotal * 0.19) : 0;
-  const total = discountedSubtotal + tax;
+  const persistedLineValues = order.items.every(hasPersistedLineValues);
+  const taxable = persistedLineValues ? order.items.some((item) => item.taxable) : order.invoice;
 
   const drawTopBand = () => {
     const bandWidth = pageWidth / 3;
@@ -177,9 +217,9 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
   doc.setTextColor(...colors.royal);
   doc.text(order.number, pageWidth - margin, 25, { align: "right" });
 
-  const badgeText = order.invoice ? "CON FACTURA" : "SIN FACTURA";
+  const badgeText = taxable ? "CON IVA" : "EXENTO";
   const badgeWidth = doc.getTextWidth(badgeText) + 8;
-  doc.setFillColor(...(order.invoice ? colors.navy : colors.pale));
+  doc.setFillColor(...(taxable ? colors.navy : colors.pale));
   doc.roundedRect(
     pageWidth - margin - badgeWidth,
     29,
@@ -190,7 +230,7 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
     "F",
   );
   doc.setFontSize(7.5);
-  doc.setTextColor(...(order.invoice ? colors.white : colors.slate));
+  doc.setTextColor(...(taxable ? colors.white : colors.slate));
   doc.text(badgeText, pageWidth - margin - badgeWidth / 2, 33.7, {
     align: "center",
   });
@@ -260,12 +300,14 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
     startY: y - 2,
     margin: { left: margin, right: margin, bottom: 22 },
     theme: "grid",
-    head: [["ITEM", "DESCRIPCIÓN", "SUBTOTAL"]],
-    body: order.items.map((item) => [
-      safe(item.name, "Servicio"),
-      safe(item.description, "-"),
-      formatClp(item.amount),
-    ]),
+     head: [["ITEM", "DESCRIPCIÓN", "BASE", "IVA", "TOTAL"]],
+     body: order.items.map((item) => [
+       safe(item.name, "Servicio"),
+       safe(item.description, "-"),
+       formatClp(persistedLineValues ? Number(item.netAmount) : item.amount),
+       persistedLineValues ? `${item.taxable ? `IVA ${Number(item.taxRate)}%` : "Exento"}\n${formatClp(Number(item.taxAmount))}` : formatClp(0),
+       formatClp(persistedLineValues ? Number(item.total) : item.amount),
+     ]),
     headStyles: {
       fillColor: colors.navy,
       textColor: colors.white,
@@ -283,9 +325,11 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
     },
     alternateRowStyles: { fillColor: colors.pale },
     columnStyles: {
-      0: { cellWidth: 43, fontStyle: "bold" },
-      1: { cellWidth: "auto" },
-      2: { cellWidth: 36, halign: "right", fontStyle: "bold" },
+       0: { cellWidth: 35, fontStyle: "bold" },
+       1: { cellWidth: "auto" },
+       2: { cellWidth: 27, halign: "right", fontStyle: "bold" },
+       3: { cellWidth: 29, halign: "right" },
+       4: { cellWidth: 29, halign: "right", fontStyle: "bold" },
     },
     didDrawPage: () => drawTopBand(),
   });
@@ -293,7 +337,7 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
   const tableDoc = doc as jsPDF & { lastAutoTable: { finalY: number } };
   y = tableDoc.lastAutoTable.finalY + 8;
   const hasDiscount = discount > 0;
-  const totalsHeight = hasDiscount ? 43 : 28;
+   const totalsHeight = (hasDiscount ? 15 : 0) + (persistedLineValues ? 18 : 0) + 43;
   y = ensureSpace(y, totalsHeight + 3);
 
   const totalsX = pageWidth - margin - 75;
@@ -307,7 +351,7 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
     align: "right",
   });
 
-  let totalLineY = y + 13;
+   let totalLineY = y + 13;
   if (hasDiscount) {
     doc.setTextColor(180, 55, 48);
     doc.text(`Descuento (${discountPercent}%)`, totalsX + 5, totalLineY);
@@ -336,7 +380,7 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
     doc.setFontSize(8.5);
     doc.setTextColor(...colors.slate);
     totalLineY += reasonLines.length > 1 ? 11 : 8;
-    doc.text("Neto con descuento", totalsX + 5, totalLineY);
+     doc.text("Neto con descuento", totalsX + 5, totalLineY);
     doc.text(
       formatClp(discountedSubtotal),
       pageWidth - margin - 5,
@@ -346,11 +390,15 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
     totalLineY += 7;
   }
 
-  doc.text(
-    order.invoice ? "IVA (19%)" : "IVA (sin factura)",
-    totalsX + 5,
-    totalLineY,
-  );
+   if (persistedLineValues) {
+     doc.text("Base afecta", totalsX + 5, totalLineY);
+     doc.text(formatClp(taxableBase), pageWidth - margin - 5, totalLineY, { align: "right" });
+     totalLineY += 7;
+     doc.text("Base exenta", totalsX + 5, totalLineY);
+     doc.text(formatClp(exemptBase), pageWidth - margin - 5, totalLineY, { align: "right" });
+     totalLineY += 7;
+   }
+   doc.text(persistedLineValues ? "IVA" : order.invoice ? "IVA (19%)" : "IVA (sin factura)", totalsX + 5, totalLineY);
   doc.text(formatClp(tax), pageWidth - margin - 5, totalLineY, {
     align: "right",
   });

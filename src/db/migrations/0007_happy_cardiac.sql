@@ -1,0 +1,1 @@
+ALTER TABLE `order_email_deliveries` MODIFY COLUMN `status` enum('pending','sent','failed') NOT NULL;

@@ -3,3 +3,8 @@ export * from "./primitives";
 export * from "./submit-button";
 export * from "./modal";
 export * from "./modal-form";
+export * from "./icon-button";
+export * from "./combo-box";
+export * from "./table-toolbar";
+export * from "./pagination";
+export * from "./money-input";

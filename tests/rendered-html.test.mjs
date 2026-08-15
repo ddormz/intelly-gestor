@@ -126,3 +126,46 @@ test("exposes the legacy PDF from authenticated and public order views", async (
   assert.match(privateRoute, /requireUser/);
   assert.match(publicRoute, /findPublicOrderPdf/);
 });
+
+test("exposes project catalog controls and active defaults", async () => {
+  const [page, manager] = await Promise.all([
+    readFile(new URL("../src/app/(dashboard)/productos-servicios/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/(dashboard)/productos-servicios/catalog-manager.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /allowedTabs: \["active", "inactive", "all"\], defaultTab: "active"/);
+  assert.match(manager, /value: "project", label: "Proyectos"/);
+  assert.match(manager, /type === "project"/);
+  assert.match(manager, /placeholder=\{item \? undefined : "Se genera al guardar"\}/);
+  assert.doesNotMatch(manager, /generateCatalogCode/);
+  assert.doesNotMatch(manager, /<Card/);
+});
+
+test("keeps catalog/client tabs, dependent geography, lookup, and typed order selectors explicit", async () => {
+  const [catalogPage, clientsPage, clientManager, orderManager, integrationManager] = await Promise.all([
+    readFile(new URL("../src/app/(dashboard)/productos-servicios/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/(dashboard)/clientes/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/(dashboard)/clientes/client-manager.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/(dashboard)/ordenes/order-manager.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/(dashboard)/integraciones/integration-manager.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(catalogPage, /allowedTabs: \["active", "inactive", "all"\]/);
+  assert.match(clientsPage, /allowedTabs: \["active", "inactive", "all"\]/);
+  assert.match(clientManager, /listCommunes\(region\)/);
+  assert.match(clientManager, /cityForCommune\(region, commune\)/);
+  assert.match(clientManager, /\/api\/clients\/rut/);
+  assert.match(orderManager, /item\.type === "project"/);
+  assert.match(integrationManager, /placeholder="https:\/\/api\.intellydte\.cl"/);
+});
+
+test("keeps settled POS controls disabled and revalidates order availability after base-data creation", async () => {
+  const [pos, clientActions, catalogActions] = await Promise.all([
+    readFile(new URL("../src/app/(dashboard)/ordenes/nueva/order-pos.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/features/clients/actions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/features/catalog/actions.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(pos, /discountNeedsReason/);
+  assert.match(pos, /disabled=\{!editable\}/);
+  assert.match(pos, /getStatusLabel\(initial\.status\)/);
+  assert.match(clientActions, /revalidatePath\("\/ordenes"\)/);
+  assert.match(catalogActions, /revalidatePath\("\/ordenes"\)/);
+});

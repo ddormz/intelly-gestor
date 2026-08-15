@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<DTE xmlns="http://www.sii.cl/SiiDte" version="1.0">
+  <Documento ID="F33T42">
+    <Encabezado>
+      <IdDoc><TipoDTE>33</TipoDTE><Folio>42</Folio><FchEmis>2026-08-15</FchEmis><FchVenc>2026-09-14</FchVenc></IdDoc>
+      <Emisor><RUTEmisor>76123456-7</RUTEmisor><RznSoc>EMISOR SPA</RznSoc><GiroEmis>Servicios</GiroEmis><Acteco>620200</Acteco><DirOrigen>Origen 123</DirOrigen><CmnaOrigen>Santiago</CmnaOrigen><CiudadOrigen>Santiago</CiudadOrigen></Emisor>
+      <Receptor><RUTRecep>96543210-1</RUTRecep><RznSocRecep>CLIENTE SPA</RznSocRecep><GiroRecep>Comercio</GiroRecep><DirRecep>Destino 456</DirRecep><CmnaRecep>Providencia</CmnaRecep><CiudadRecep>Santiago</CiudadRecep></Receptor>
+      <Totales><MntNeto>1000</MntNeto><MntExe>0</MntExe><TasaIVA>19</TasaIVA><IVA>190</IVA><MntTotal>1190</MntTotal></Totales>
+    </Encabezado>
+    <Detalle><NroLinDet>1</NroLinDet><NmbItem>Servicio principal</NmbItem><DscItem>Detalle del servicio</DscItem><QtyItem>2</QtyItem><UnmdItem>UN</UnmdItem><PrcItem>500</PrcItem><MontoItem>1000</MontoItem></Detalle>
+    <Referencia><NroLinRef>1</NroLinRef><TpoDocRef>801</TpoDocRef><FolioRef>7</FolioRef><FchRef>2026-08-01</FchRef><RazonRef>Orden relacionada</RazonRef></Referencia>
+    <TED version="1.0"><DD><RE>76123456-7</RE><TD>33</TD><F>42</F><FE>2026-08-15</FE><RR>96543210-1</RR><RSR>CLIENTE SPA</RSR><MNT>1190</MNT><IT1>Servicio principal</IT1><CAF version="1.0">caf-data</CAF><TSTED>2026-08-15T12:00:00</TSTED></DD><FRMA algoritmo="SHA1withRSA">firma</FRMA></TED>
+  </Documento>
+</DTE>

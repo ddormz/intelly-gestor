@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState, type ReactNode } from "react";
 import { Modal } from "./modal";
 import { Alert, Button } from "./primitives";
+import { IconButton } from "./icon-button";
 import type { ActionState } from "@/lib/action-state";
 
 type ActionModalProps = {
@@ -13,13 +14,14 @@ type ActionModalProps = {
   submitLabel: string;
   pendingLabel?: string;
   variant?: "primary" | "secondary" | "danger";
+  iconOnly?: boolean;
   action: (state: ActionState, formData: FormData) => Promise<ActionState>;
   children: (state: ActionState) => ReactNode;
 };
 
 const initialState: ActionState = { status: "idle" };
 
-function ActionModalContent({ title, description, submitLabel, pendingLabel, action, children, onClose }: Omit<ActionModalProps, "triggerLabel" | "triggerIcon" | "variant"> & { onClose: () => void }) {
+function ActionModalContent({ title, description, submitLabel, pendingLabel, action, children, onClose }: Omit<ActionModalProps, "triggerLabel" | "triggerIcon" | "variant" | "iconOnly"> & { onClose: () => void }) {
   const [state, formAction, pending] = useActionState(action, initialState);
 
   useEffect(() => {
@@ -38,10 +40,10 @@ function ActionModalContent({ title, description, submitLabel, pendingLabel, act
   </Modal>;
 }
 
-export function ActionModal({ triggerLabel, triggerIcon, variant = "primary", ...props }: ActionModalProps) {
+export function ActionModal({ triggerLabel, triggerIcon, variant = "primary", iconOnly = false, ...props }: ActionModalProps) {
   const [open, setOpen] = useState(false);
   return <>
-    <Button type="button" variant={variant} onClick={() => setOpen(true)}>{triggerIcon}{triggerLabel}</Button>
+    {iconOnly ? <IconButton type="button" label={triggerLabel} icon={triggerIcon} variant={variant} onClick={() => setOpen(true)} /> : <Button type="button" variant={variant} onClick={() => setOpen(true)}>{triggerIcon}{triggerLabel}</Button>}
     {open ? <ActionModalContent {...props} onClose={() => setOpen(false)} /> : null}
   </>;
 }

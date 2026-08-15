@@ -16,10 +16,19 @@ export function multiplyMoney(unit: Money, quantity: number): Money {
 }
 
 export function calculateTax(net: Money, ratePercent: number): Money {
-  if (!Number.isInteger(ratePercent) || ratePercent < 0 || ratePercent > 100) {
-    throw new RangeError("La tasa debe ser un entero entre 0 y 100.");
+  if (!Number.isFinite(ratePercent) || ratePercent < 0 || ratePercent > 100 || Math.abs(ratePercent * 100 - Math.round(ratePercent * 100)) > Number.EPSILON) {
+    throw new RangeError("La tasa debe estar entre 0 y 100 con hasta dos decimales.");
   }
-  return clp((net.minor * BigInt(ratePercent) + 50n) / 100n);
+  const rateBasisPoints = BigInt(Math.round(ratePercent * 100));
+  return clp((net.minor * rateBasisPoints + 5_000n) / 10_000n);
+}
+
+export function percentageOfMoney(value: Money, percent: number): Money {
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100 || Math.abs(percent * 100 - Math.round(percent * 100)) > Number.EPSILON) {
+    throw new RangeError("El porcentaje debe estar entre 0 y 100 con hasta dos decimales.");
+  }
+  const basisPoints = BigInt(Math.round(percent * 100));
+  return clp((value.minor * basisPoints + 5_000n) / 10_000n);
 }
 
 export function addMoney(...values: Money[]): Money {

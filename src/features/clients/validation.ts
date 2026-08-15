@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { cityForCommune } from "./geography";
 
 function normalizeRut(value: string): string { return value.replace(/[^0-9kK]/g, "").toUpperCase(); }
 
@@ -23,9 +24,16 @@ export const clientSchema = z.object({
   legalName: z.string().trim().min(2, "Ingresa la razón social o nombre.").max(180),
   email: z.string().trim().email("Ingresa un correo válido.").max(254),
   phone: z.string().trim().max(30).optional(),
-  addressLine: z.string().trim().max(240).optional(),
-  commune: z.string().trim().max(100).optional(),
-  city: z.string().trim().max(100).optional(),
+  addressLine: z.string().trim().min(1, "Ingresa una dirección.").max(240),
+  giro: z.string().trim().max(180).optional(),
+  region: z.string().trim().min(1, "Selecciona una región.").max(100),
+  commune: z.string().trim().min(1, "Selecciona una comuna.").max(100),
+  city: z.string().trim().min(1, "Selecciona una ciudad.").max(100),
+}).superRefine((value, context) => {
+  const city = cityForCommune(value.region, value.commune);
+  if (!city || city.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase() !== value.city.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase()) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["city"], message: "La ciudad no corresponde a la región y comuna seleccionadas." });
+  }
 });
 
 export const clientUpdateSchema = clientSchema.extend({ id: z.string().uuid() });

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Boxes, CircleUserRound, CreditCard, FileText, Gauge, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PlugZap, Users, X } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
-import { SubmitButton } from "@/components/ui";
+import { IconButton, SubmitButton } from "@/components/ui";
 import { logoutAction } from "@/features/auth/actions";
 
 const links = [
@@ -47,7 +47,7 @@ export function AppShell({ user, children }: { user: { name: string; role: strin
     <nav aria-label="Navegación principal" className="flex-1 space-y-1.5 p-3">
       {getNavigationLinks(user.role).map(({ href, label, icon: Icon }) => {
         const active = href === "/" ? path === "/" : path.startsWith(href);
-        return <Link key={href} href={href} title={compact ? label : undefined} onClick={() => setMobileOpen(false)} aria-current={active ? "page" : undefined} className={`group flex min-h-11 items-center rounded-xl text-sm font-semibold ${compact ? "justify-center px-2" : "gap-3 px-3"} ${active ? "bg-[rgb(20_208_246_/_0.14)] text-[var(--brand-navy)] shadow-[inset_3px_0_0_var(--brand-cyan)]" : "text-[var(--color-muted-foreground)] hover:bg-[var(--color-background-soft)] hover:text-[var(--brand-navy)]"}`}>
+         return <Link key={href} href={href} title={compact ? label : undefined} data-tooltip={compact ? label : undefined} onClick={() => setMobileOpen(false)} aria-current={active ? "page" : undefined} className={`group flex min-h-11 items-center rounded-xl text-sm font-semibold ${compact ? "justify-center px-2" : "gap-3 px-3"} ${active ? "bg-[rgb(20_208_246_/_0.14)] text-[var(--brand-navy)] shadow-[inset_3px_0_0_var(--brand-cyan)]" : "text-[var(--color-muted-foreground)] hover:bg-[var(--color-background-soft)] hover:text-[var(--brand-navy)]"}`}>
           <Icon aria-hidden="true" size={20} strokeWidth={active ? 2.2 : 1.8} className={active ? "text-[var(--brand-blue)]" : "text-[var(--color-muted-foreground)] group-hover:text-[var(--brand-blue)]"} />
           <span className={compact ? "sr-only" : ""}>{label}</span>
         </Link>;
@@ -58,10 +58,8 @@ export function AppShell({ user, children }: { user: { name: string; role: strin
         <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[rgb(20_208_246_/_0.14)] text-[var(--brand-navy)]"><CircleUserRound size={20} /></div>
         {!compact ? <div className="min-w-0"><p className="truncate text-sm font-semibold text-[var(--brand-deep)]">{user.name}</p><p className="text-xs capitalize text-[var(--color-muted-foreground)]">{user.role}</p></div> : null}
       </div>
-      <form action={logoutAction} className={compact ? "flex justify-center" : ""}>
-        <SubmitButton variant="secondary" className={compact ? "!min-h-9 !w-9 !p-0" : "!min-h-9 w-full !justify-start !px-2.5 !py-1.5"} pendingLabel={compact ? "…" : "Cerrando sesión…"}>
-          <LogOut size={17} aria-hidden="true" /><span className={compact ? "sr-only" : ""}>Cerrar sesión</span>
-        </SubmitButton>
+      <form action={logoutAction} className="flex justify-center">
+        <SubmitButton variant="secondary" iconOnly label="Cerrar sesión" icon={<LogOut size={17} />} pendingLabel="Cerrando sesión…" />
       </form>
     </div>
   </>;
@@ -72,16 +70,14 @@ export function AppShell({ user, children }: { user: { name: string; role: strin
     {mobileOpen ? <div className="fixed inset-0 z-50 lg:hidden">
       <button aria-label="Cerrar menú" className="absolute inset-0 bg-[var(--brand-deep)]/65 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
       <aside className="shell-sidebar relative flex h-full w-[min(88vw,320px)] flex-col shadow-2xl">
-        <button aria-label="Cerrar menú" onClick={() => setMobileOpen(false)} className="absolute right-3 top-3 z-10 grid size-11 place-items-center rounded-xl text-[var(--brand-navy)] hover:bg-[var(--color-muted)]"><X /></button>
+         <IconButton label="Cerrar menú" icon={<X />} onClick={() => setMobileOpen(false)} className="!absolute right-3 top-3 z-10 !border-0 !bg-transparent !shadow-none hover:!bg-[var(--color-muted)]" />
         {navigation(false)}
       </aside>
     </div> : null}
     <div className="shell-main">
       <header className="shell-topbar sticky top-0 z-30 flex h-17 items-center px-4 lg:px-8">
-        <button aria-label="Abrir menú" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)} className="grid size-11 place-items-center rounded-xl border border-[var(--color-border)] bg-white text-[var(--brand-navy)] shadow-sm hover:border-[var(--brand-blue)] lg:hidden"><Menu /></button>
-        <button aria-label={collapsed ? "Expandir navegación" : "Colapsar navegación"} aria-expanded={!collapsed} onClick={toggleSidebar} className="hidden size-10 place-items-center rounded-xl border border-[var(--color-border)] bg-white text-[var(--brand-navy)] shadow-sm hover:border-[var(--brand-blue)] lg:grid">
-          {collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}
-        </button>
+         <IconButton label="Abrir menú" icon={<Menu />} aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)} className="!grid !h-11 !w-11 lg:!hidden" />
+         <IconButton label={collapsed ? "Expandir navegación" : "Colapsar navegación"} icon={collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />} aria-expanded={!collapsed} onClick={toggleSidebar} className="!hidden !h-10 !w-10 lg:!grid" />
       </header>
       <main id="contenido-principal" tabIndex={-1} className="mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8">{children}</main>
     </div>

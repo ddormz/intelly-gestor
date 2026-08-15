@@ -3,17 +3,19 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { auditEvents, clients } from "@/db/schema";
 import { getDb } from "@/db";
 import { requireUser } from "@/features/auth/session";
 import { buildAuditEvent, writeAudit } from "@/features/audit/service";
 import { clientSchema, clientStatusSchema, clientUpdateSchema } from "./validation";
-import { normalizeRutKey, parseClientCsv } from "./csv";
+import { normalizeRutKey, parseClientCsvForImport, type LegacyClientCsvRow } from "./csv";
 import { enforceSameOrigin } from "@/lib/security";
 import { formObject } from "@/lib/validation";
-import { safeError } from "@/lib/errors";
+import { AppError, safeError } from "@/lib/errors";
 import type { ActionState } from "@/lib/action-state";
 import { readCsvFile } from "@/lib/csv";
+import { cityForCommune } from "./geography";
 
 function validationError(error: { flatten(): { fieldErrors: Record<string, string[]> } }): ActionState {
   return { status: "error", message: "Revisa los campos indicados.", fieldErrors: error.flatten().fieldErrors };
@@ -23,18 +25,41 @@ function failure(error: unknown): ActionState {
   return { status: "error", message: safeError(error).message };
 }
 
+function clientValues(input: typeof clientSchema._output) {
+  return { ...input, city: cityForCommune(input.region, input.commune) ?? input.city };
+}
+
+function legacyClientValues(input: LegacyClientCsvRow) {
+  return {
+    kind: input.kind,
+    taxId: input.taxId || null,
+    legalName: input.legalName,
+    giro: input.giro || null,
+    email: input.email,
+    phone: input.phone || null,
+    addressLine: input.addressLine || null,
+    region: input.region || null,
+    commune: input.commune || null,
+    city: input.city || null,
+  };
+}
+
 export async function createClientAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  let createdId: string | undefined;
   try {
     await enforceSameOrigin();
     const user = await requireUser();
     const parsed = clientSchema.safeParse(formObject(formData));
     if (!parsed.success) return validationError(parsed.error);
-    const id = randomUUID();
-    await getDb().insert(clients).values({ id, ...parsed.data, countryCode: "CL" });
-    await writeAudit({ actorUserId: user.userId, actorType: "user", action: "client.created", entityType: "client", entityId: id });
+    createdId = randomUUID();
+    await getDb().insert(clients).values({ id: createdId, ...clientValues(parsed.data), countryCode: "CL" });
+    await writeAudit({ actorUserId: user.userId, actorType: "user", action: "client.created", entityType: "client", entityId: createdId });
     revalidatePath("/clientes");
-    return { status: "success", message: "Cliente creado." };
+    revalidatePath("/ordenes");
   } catch (error) { return failure(error); }
+  const returnTo = String(formData.get("returnTo") ?? "");
+  if (returnTo.startsWith("/") && !returnTo.startsWith("//")) redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}clientId=${encodeURIComponent(createdId!)}`);
+  return { status: "success", message: "Cliente creado." };
 }
 
 export async function updateClientAction(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -44,7 +69,7 @@ export async function updateClientAction(_: ActionState, formData: FormData): Pr
     const parsed = clientUpdateSchema.safeParse(formObject(formData));
     if (!parsed.success) return validationError(parsed.error);
     const { id, ...changes } = parsed.data;
-    await getDb().update(clients).set({ ...changes, updatedAt: new Date() }).where(eq(clients.id, id));
+    await getDb().update(clients).set({ ...clientValues(changes), updatedAt: new Date() }).where(eq(clients.id, id));
     await writeAudit({ actorUserId: user.userId, actorType: "user", action: "client.updated", entityType: "client", entityId: id });
     revalidatePath("/clientes"); revalidatePath("/ordenes");
     return { status: "success", message: "Cliente actualizado." };
@@ -68,15 +93,17 @@ export async function importClientsAction(_: ActionState, formData: FormData): P
   try {
     await enforceSameOrigin();
     const user = await requireUser("admin");
-    const rows = parseClientCsv(await readCsvFile(formData.get("file")));
+    const rows = parseClientCsvForImport(await readCsvFile(formData.get("file")));
     const existing = await getDb().select({ id: clients.id, taxId: clients.taxId, email: clients.email, status: clients.status }).from(clients);
     const byRut = new Map(existing.filter((item) => item.taxId).map((item) => [normalizeRutKey(item.taxId!), item]));
     const byEmail = new Map(existing.map((item) => [item.email.toLowerCase(), item]));
     let created = 0, updated = 0;
     await getDb().transaction(async (tx) => {
       for (const row of rows) {
-        const found = byRut.get(normalizeRutKey(row.taxId)) ?? byEmail.get(row.email.toLowerCase());
-        const data = { kind: row.kind, taxId: row.taxId, legalName: row.legalName, email: row.email, phone: row.phone, addressLine: row.addressLine, commune: row.commune, city: row.city, updatedAt: new Date() };
+        const isLegacy = "legacy" in row;
+        const found = (row.taxId ? byRut.get(normalizeRutKey(row.taxId)) : undefined) ?? (row.email ? byEmail.get(row.email.toLowerCase()) : undefined);
+        if (isLegacy && !found) throw new AppError("CSV_NEW_CLIENT_REQUIRED", `Fila ${rows.indexOf(row) + 2}: los clientes nuevos deben completar RUT, nombre, dirección y geografía.`);
+        const data = { ...(isLegacy ? legacyClientValues(row) : clientValues(row)), updatedAt: new Date() };
         if (found) {
           await tx.update(clients).set(data).where(eq(clients.id, found.id));
           updated++;

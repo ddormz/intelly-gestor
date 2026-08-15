@@ -22,10 +22,15 @@ export function safeError(error: unknown) {
   };
 }
 
-const secretKeys = /password|secret|token|authorization|api[-_]?key|database_url/i;
+const secretKeys = /password|secret|token|authorization|api[-_]?key|database_url|signed[-_]?xml|print[-_]?payload|^ted|^pdf|^xml$|base64/i;
+
+function redactValue(value: unknown, key = ""): unknown {
+  if (secretKeys.test(key)) return "[REDACTED]";
+  if (Array.isArray(value)) return value.map((item) => redactValue(item));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, redactValue(childValue, childKey)]));
+  return value;
+}
 
 export function redactMetadata(value: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, secretKeys.test(key) ? "[REDACTED]" : item]),
-  );
+  return redactValue(value) as Record<string, unknown>;
 }

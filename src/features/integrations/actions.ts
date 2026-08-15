@@ -11,7 +11,7 @@ import type { ActionState } from "@/lib/action-state";
 import { saveIntellyDteConfig } from "./config-service";
 import { getIntellyDteGateway } from "./intellydte";
 
-const schema = z.object({ baseUrl: z.string().trim().url(), apiKey: z.string().trim().max(500).optional() });
+const schema = z.object({ baseUrl: z.string().trim().url(), apiKey: z.string().trim().max(500).optional(), tenantApiKey: z.string().trim().max(500).optional(), systemApiKey: z.string().trim().max(500).optional(), tenantRut: z.string().trim().max(20).optional(), webhookSecret: z.string().trim().max(500).optional() });
 
 export async function saveIntellyDteConfigAction(_: ActionState, formData: FormData): Promise<ActionState> {
   try {

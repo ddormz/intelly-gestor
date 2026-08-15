@@ -22,9 +22,15 @@ const envSchema = z.object({
   SMTP_FROM: z.string().trim().min(1).optional(),
   INTELLYDTE_MODE: z.enum(["fake", "http"]).default("fake"),
   INTELLYDTE_BASE_URL: z.string().url().optional().or(z.literal("")),
-  INTELLYDTE_API_KEY: z.string().optional(),
+  INTELLYDTE_API_KEY: z.string().trim().optional(),
+  INTELLYDTE_TENANT_API_KEY: z.string().trim().optional(),
+  INTELLYDTE_SYSTEM_API_KEY: z.string().trim().optional(),
+  INTELLYDTE_TENANT_RUT: z.string().trim().optional(),
   INTELLYDTE_COMPANY_TAX_ID: z.string().optional(),
   INTELLYDTE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
+  INTELLYDTE_EMISSION_MODE: z.enum(["sync", "async", "fast-ack"]).default("async"),
+  INTELLYDTE_WEBHOOK_SECRET: z.string().trim().optional(),
+  FISCAL_EVIDENCE_DIR: z.string().trim().min(1).default("data/fiscal-evidence"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 
