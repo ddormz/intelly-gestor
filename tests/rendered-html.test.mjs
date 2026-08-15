@@ -113,3 +113,16 @@ test("keeps secure order behavior and the reusable PDF foundation", async () => 
   assert.match(pdf, /DATOS PARA TRANSFERENCIA|Datos para transferencia/);
   assert.match(pdf, /CONDICIONES Y PLAZOS|Condiciones y plazos/);
 });
+
+test("exposes the legacy PDF from authenticated and public order views", async () => {
+  const [manager, publicOrder, privateRoute, publicRoute] = await Promise.all([
+    readFile(new URL("../src/app/(dashboard)/ordenes/order-manager.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/orden/[publicToken]/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/orders/[id]/pdf/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/api/public/orders/[publicToken]/pdf/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(manager, /\/api\/orders\/\$\{order\.id\}\/pdf/);
+  assert.match(publicOrder, /\/api\/public\/orders\/\$\{publicToken\}\/pdf/);
+  assert.match(privateRoute, /requireUser/);
+  assert.match(publicRoute, /findPublicOrderPdf/);
+});
