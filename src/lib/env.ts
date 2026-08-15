@@ -47,7 +47,12 @@ export function getEnv(): AppEnv {
 }
 
 export function parseAppEnv(input: Record<string, string | undefined>): AppEnv {
-  return envSchema.parse(input);
+  const origin = input.APP_ORIGIN || "http://localhost:3000";
+  const normalized = {
+    ...input,
+    APP_URL: input.APP_URL || origin,
+  };
+  return envSchema.parse(normalized);
 }
 
 export function publicConfig() {

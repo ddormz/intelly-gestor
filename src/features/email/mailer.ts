@@ -5,24 +5,64 @@ import { passwordResetEmail } from "./password-reset-email";
 import { orderEmail } from "./order-email";
 import { invoiceEmail } from "./invoice-email";
 
+export type SenderAddress = { name: string; address: string } | string;
+
+export function parseSender(fromStr?: string, defaultEmail?: string): SenderAddress {
+  if (!fromStr || !fromStr.trim()) {
+    return defaultEmail ? { name: "Intelly Pagos", address: defaultEmail.trim() } : "Intelly Pagos";
+  }
+  const clean = fromStr.trim();
+  const match = clean.match(/^(?:"?([^"<]+)"?\s*)?<?([^>]+)>?$/);
+  if (match && match[2] && match[2].includes("@")) {
+    return {
+      name: (match[1] || "Intelly Pagos").trim().replace(/^["']|["']$/g, ""),
+      address: match[2].trim(),
+    };
+  }
+  return clean;
+}
+
+export function getMailTransport() {
+  const env = getEnv();
+  if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD) {
+    throw new AppError("SMTP_NOT_CONFIGURED", "El servidor SMTP no está configurado.");
+  }
+  const port = Number(env.SMTP_PORT) || 465;
+  const isSecure = port === 465;
+  const user = env.SMTP_USER.trim();
+  const pass = env.SMTP_PASSWORD.trim();
+
+  const transport = nodemailer.createTransport({
+    host: env.SMTP_HOST.trim(),
+    port,
+    secure: isSecure,
+    requireTLS: !isSecure && port === 587,
+    auth: { user, pass },
+    tls: {
+      rejectUnauthorized: false,
+    },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
+  });
+
+  const from = parseSender(env.SMTP_FROM, user);
+  return { transport, from, user };
+}
+
 export async function sendPasswordResetEmail(input: {
   to: string;
   name: string;
   resetUrl: string;
   expiresMinutes: number;
 }): Promise<void> {
-  const env = getEnv();
-  if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD || !env.SMTP_FROM) {
-    throw new AppError("SMTP_NOT_CONFIGURED", "El correo de recuperación no está configurado.");
-  }
-  const transport = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_PORT === 465,
-    requireTLS: env.SMTP_PORT === 587,
-    auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
+  const { transport, from, user } = getMailTransport();
+  await transport.sendMail({
+    from,
+    to: input.to,
+    envelope: { from: user, to: input.to },
+    ...passwordResetEmail(input),
   });
-  await transport.sendMail({ from: env.SMTP_FROM, to: input.to, ...passwordResetEmail(input) });
 }
 
 export async function sendOrderMessage(input: {
@@ -35,20 +75,11 @@ export async function sendOrderMessage(input: {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.to)) {
     throw new AppError("ORDER_EMAIL_INVALID", "El correo del cliente no es válido.");
   }
-  const env = getEnv();
-  if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD || !env.SMTP_FROM) {
-    throw new AppError("SMTP_NOT_CONFIGURED", "El correo de órdenes no está configurado.");
-  }
-  const transport = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_PORT === 465,
-    requireTLS: env.SMTP_PORT === 587,
-    auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
-  });
+  const { transport, from, user } = getMailTransport();
   await transport.sendMail({
-    from: env.SMTP_FROM,
+    from,
     to: input.to,
+    envelope: { from: user, to: input.to },
     ...orderEmail(input),
     attachments: [
       {
@@ -70,17 +101,7 @@ export async function sendInvoiceMessage(input: {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.to)) {
     throw new AppError("INVOICE_EMAIL_INVALID", "El correo del receptor no es válido.");
   }
-  const env = getEnv();
-  if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD || !env.SMTP_FROM) {
-    throw new AppError("SMTP_NOT_CONFIGURED", "El servidor SMTP no está configurado.");
-  }
-  const transport = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_PORT === 465,
-    requireTLS: env.SMTP_PORT === 587,
-    auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
-  });
+  const { transport, from, user } = getMailTransport();
 
   const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [
     {
@@ -99,34 +120,23 @@ export async function sendInvoiceMessage(input: {
   }
 
   await transport.sendMail({
-    from: env.SMTP_FROM,
+    from,
     to: input.to,
+    envelope: { from: user, to: input.to },
     ...invoiceEmail(input),
     attachments,
   });
 }
 
 export async function testSmtpConnection(): Promise<{ ok: boolean; message: string }> {
-  const env = getEnv();
-  if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD || !env.SMTP_FROM) {
-    return {
-      ok: false,
-      message: "El servidor SMTP no está completamente configurado en las variables de entorno.",
-    };
-  }
-  const transport = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_PORT === 465,
-    requireTLS: env.SMTP_PORT === 587,
-    auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
-  });
-
   try {
+    const { transport, from, user } = getMailTransport();
     await transport.verify();
+    const env = getEnv();
+    const fromLabel = typeof from === "object" && from !== null && "address" in from ? `${from.name} <${from.address}>` : String(from);
     return {
       ok: true,
-      message: `Conexión SMTP exitosa con ${env.SMTP_HOST}:${env.SMTP_PORT} (${env.SMTP_FROM})`,
+      message: `Conexión SMTP exitosa con ${env.SMTP_HOST}:${env.SMTP_PORT} (${fromLabel || user})`,
     };
   } catch (error) {
     return {
