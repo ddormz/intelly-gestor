@@ -78,3 +78,28 @@ export function providerError(payload: unknown, fallbackCode: string, fallbackMe
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : typeof value === "number" ? String(value) : undefined;
 }
+
+export type FolioStatusItem = {
+  tipoDte: number;
+  tipoNombre: string;
+  disponibles: number;
+  rangoDesde?: number;
+  rangoHasta?: number;
+  ultimoUtilizado?: number;
+  vencimientoCaf?: string | null;
+  alerta: "normal" | "low" | "critical";
+};
+
+export type RequestFoliosCommand = {
+  tipoDte: number;
+  cantidad: number;
+};
+
+export type RequestFoliosResult = {
+  ok: boolean;
+  tipoDte: number;
+  cantidadOtorgada: number;
+  rangoDesde?: number;
+  rangoHasta?: number;
+  message: string;
+};

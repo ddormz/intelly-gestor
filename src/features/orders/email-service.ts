@@ -48,7 +48,7 @@ export type OrderEmailDependencies = {
   appUrl?: () => string;
 };
 
-export async function sendOrderEmail(orderId: string, userId: string, dependencies: OrderEmailDependencies = {}): Promise<OrderEmailResult> {
+export async function sendOrderEmail(orderId: string, userId: string, dependencies: OrderEmailDependencies = {}, customRecipient?: string): Promise<OrderEmailResult> {
   let recipient = "";
   let orderLoaded = false;
   const deliveryId = randomUUID();
@@ -68,8 +68,8 @@ export async function sendOrderEmail(orderId: string, userId: string, dependenci
       const [order] = await tx.select(emailOrderFields).from(paymentOrders).innerJoin(clients, eq(clients.id, paymentOrders.clientId)).where(eq(paymentOrders.id, orderId)).limit(1).for("update").execute();
       if (!order) throw new AppError("ORDER_NOT_FOUND", "Orden no encontrada.", 404);
       orderLoaded = true;
-      recipient = order.clientEmail.trim();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) throw new AppError("ORDER_EMAIL_INVALID", "El correo del cliente no es válido.");
+      recipient = (customRecipient?.trim() || order.clientEmail).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) throw new AppError("ORDER_EMAIL_INVALID", "El correo de destino no es válido.");
       if (order.status !== "issued" && order.status !== "paid" && order.status !== "invoiced") throw new AppError("ORDER_EMAIL_NOT_AVAILABLE", "La orden debe estar emitida antes de enviarla por correo.");
       const [pending] = await tx.select({ id: orderEmailDeliveries.id }).from(orderEmailDeliveries).where(and(eq(orderEmailDeliveries.paymentOrderId, orderId), eq(orderEmailDeliveries.status, "pending"))).limit(1).for("update").execute();
       if (pending) throw new AppError("ORDER_EMAIL_IN_PROGRESS", "Ya existe un envío de correo pendiente para esta orden.", 409);

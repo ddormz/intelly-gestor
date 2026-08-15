@@ -2,7 +2,16 @@ import { createHash } from "node:crypto";
 import { AppError } from "@/lib/errors";
 import { getEnv } from "@/lib/env";
 import { getIntellyDteConfig, normalizeIntellyDteBaseUrl, normalizeIntellyDteTenantRut } from "./config-service";
-import { providerData, providerError, type IntellyDteFacturaPayload, type NormalizedProviderData, type ProviderBody } from "./intellydte-contract";
+import {
+  providerData,
+  providerError,
+  type FolioStatusItem,
+  type IntellyDteFacturaPayload,
+  type NormalizedProviderData,
+  type ProviderBody,
+  type RequestFoliosCommand,
+  type RequestFoliosResult,
+} from "./intellydte-contract";
 
 export type IssueInvoiceCommand = {
   idempotencyKey: string;
@@ -24,6 +33,8 @@ export interface IntellyDteGateway {
   issueInvoice(command: IssueInvoiceCommand): Promise<InvoiceResult>;
   getInvoiceStatus(providerDocumentId: string): Promise<InvoiceStatusResult>;
   lookupRut(rut: string): Promise<RutLookupResult>;
+  getFoliosStatus(): Promise<FolioStatusItem[]>;
+  requestFolios(command: RequestFoliosCommand): Promise<RequestFoliosResult>;
 }
 
 export type GatewayConfig = { baseUrl: string; tenantApiKey?: string; systemApiKey?: string | null; tenantRut?: string | null; apiKey?: string; emissionMode?: "sync" | "async" | "fast-ack"; timeoutMs?: number };
@@ -140,6 +151,97 @@ export class IntellyDteHttpGateway implements IntellyDteGateway {
     const data = root.data && typeof root.data === "object" ? root.data as Record<string, unknown> : root;
     return { rut: typeof data.rut === "string" ? data.rut : rut, razonSocial: typeof data.razonSocial === "string" && data.razonSocial.trim() ? data.razonSocial : null, autorizado: typeof data.autorizado === "boolean" ? data.autorizado : null };
   }
+
+  async getFoliosStatus(): Promise<FolioStatusItem[]> {
+    const defaultList: FolioStatusItem[] = [
+      { tipoDte: 33, tipoNombre: "Factura Electrónica", disponibles: 0, alerta: "critical" },
+      { tipoDte: 39, tipoNombre: "Boleta Electrónica", disponibles: 0, alerta: "critical" },
+      { tipoDte: 61, tipoNombre: "Nota de Crédito", disponibles: 0, alerta: "critical" },
+    ];
+
+    try {
+      const result = await this.request("/folios/status", {
+        method: "GET",
+        headers: {
+          "x-api-key": this.tenantApiKey,
+          ...(this.tenantRut ? { "x-tenant-rut": this.tenantRut } : {}),
+          Accept: "application/json",
+        },
+      });
+
+      if ("error" in result || !result.response.ok || !result.body) {
+        return defaultList;
+      }
+
+      const root = result.body as Record<string, unknown>;
+      const rawList = Array.isArray(root.data)
+        ? root.data
+        : Array.isArray(root.folios)
+          ? root.folios
+          : Array.isArray(root)
+            ? root
+            : [];
+
+      if (!rawList.length) return defaultList;
+
+      return [33, 39, 61].map((tipoDte) => {
+        const found = rawList.find((item) => Number(item?.tipoDte ?? item?.tipo_dte) === tipoDte) as Record<string, unknown> | undefined;
+        const tipoNombre = tipoDte === 33 ? "Factura Electrónica" : tipoDte === 39 ? "Boleta Electrónica" : "Nota de Crédito";
+        const disponibles = Number(found?.disponibles ?? found?.cantidadDisponible ?? found?.available ?? 0);
+        const alerta: "normal" | "low" | "critical" = disponibles <= 0 ? "critical" : disponibles <= 10 ? "low" : "normal";
+
+        return {
+          tipoDte,
+          tipoNombre,
+          disponibles,
+          rangoDesde: found?.rangoDesde ? Number(found.rangoDesde) : undefined,
+          rangoHasta: found?.rangoHasta ? Number(found.rangoHasta) : undefined,
+          ultimoUtilizado: found?.ultimoUtilizado ? Number(found.ultimoUtilizado) : undefined,
+          vencimientoCaf: typeof found?.vencimientoCaf === "string" ? found.vencimientoCaf : null,
+          alerta,
+        };
+      });
+    } catch {
+      return defaultList;
+    }
+  }
+
+  async requestFolios(command: RequestFoliosCommand): Promise<RequestFoliosResult> {
+    const result = await this.request("/folios/request", {
+      method: "POST",
+      headers: {
+        "x-api-key": this.tenantApiKey,
+        ...(this.tenantRut ? { "x-tenant-rut": this.tenantRut } : {}),
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        tipoDte: command.tipoDte,
+        cantidad: command.cantidad,
+      }),
+    });
+
+    if ("error" in result) {
+      throw new AppError("INTELLYDTE_UNAVAILABLE", "No fue posible conectar con IntellyDTE para solicitar folios.", 502);
+    }
+
+    if (!result.response.ok) {
+      const error = providerError(result.body, "FOLIOS_REQUEST_FAILED", "IntellyDTE no pudo procesar la solicitud de folios.");
+      throw new AppError(error.code, error.message, result.response.status);
+    }
+
+    const root = (result.body ?? {}) as Record<string, unknown>;
+    const data = (root.data && typeof root.data === "object" ? root.data : root) as Record<string, unknown>;
+
+    return {
+      ok: true,
+      tipoDte: command.tipoDte,
+      cantidadOtorgada: Number(data.cantidadOtorgada ?? data.cantidad ?? command.cantidad),
+      rangoDesde: data.rangoDesde ? Number(data.rangoDesde) : undefined,
+      rangoHasta: data.rangoHasta ? Number(data.rangoHasta) : undefined,
+      message: typeof data.message === "string" ? data.message : `Solicitud de ${command.cantidad} folios procesada con éxito.`,
+    };
+  }
 }
 
 function fakeSignedXml(command: IssueInvoiceCommand, folio: string): string {
@@ -150,16 +252,44 @@ function fakeSignedXml(command: IssueInvoiceCommand, folio: string): string {
   return `<?xml version="1.0" encoding="ISO-8859-1"?><DTE xmlns="http://www.sii.cl/SiiDte"><Documento><Encabezado><IdDoc><TipoDTE>33</TipoDTE><Folio>${folio}</Folio><FchEmis>${date}</FchEmis></IdDoc><Emisor><RUTEmisor>${process.env.INTELLYDTE_COMPANY_TAX_ID || "76123456-7"}</RUTEmisor><RznSoc>INTELLY SPA</RznSoc></Emisor><Receptor><RUTRecep>${escape(payload.receptor.rut)}</RUTRecep><RznSocRecep>${escape(payload.receptor.razonSocial)}</RznSocRecep></Receptor><Totales><MntNeto>${payload.montoNeto ?? payload.montoTotal}</MntNeto><IVA>${payload.montoIva ?? 0}</IVA><MntTotal>${payload.montoTotal}</MntTotal></Totales></Encabezado>${details}<TED version="1.0"><DD><RE>${process.env.INTELLYDTE_COMPANY_TAX_ID || "76123456-7"}</RE><TD>33</TD><F>${folio}</F><FE>${date}</FE><RR>${escape(payload.receptor.rut)}</RR><RSR>${escape(payload.receptor.razonSocial)}</RSR><MNT>${payload.montoTotal}</MNT><IT1>${escape(payload.items[0]?.nombre || "Item")}</IT1><CAF version="1.0"><DA><RE>${process.env.INTELLYDTE_COMPANY_TAX_ID || "76123456-7"}</RE><RS>INTELLY SPA</RS><TD>33</TD><RNG><D>1</D><H>10000</H></RNG><FA>${date}</FA><RSAPK><M>AQAB</M><E>AQAB</E></RSAPK><IDK>100</IDK></DA><FRMA>FAKECALL</FRMA></CAF><TSTED>${date}T12:00:00</TSTED></DD><FRMT>FAKETMST</FRMT></TED></Documento></DTE>`;
 }
 
+// In-memory fake storage for folios in simulator
+const fakeFolioCounts: Record<number, number> = {
+  33: 45,
+  39: 120,
+  61: 30,
+};
+
 export class FakeIntellyDteGateway implements IntellyDteGateway {
   async health() { return { ok: true, checkedAt: new Date().toISOString(), safeMessage: "Simulador operativo" }; }
   async issueInvoice(command: IssueInvoiceCommand): Promise<InvoiceResult> {
     const digest = createHash("sha256").update(command.idempotencyKey).digest("hex");
     const providerDocumentId = `fake_${digest.slice(0, 16)}`;
     const folio = String(parseInt(digest.slice(0, 8), 16));
+    if (fakeFolioCounts[33] > 0) fakeFolioCounts[33] -= 1;
     return { kind: "issued", providerDocumentId, folio, issuedAt: new Date().toISOString(), siiStatus: "ENQUEUED", signedXmlBase64: Buffer.from(fakeSignedXml(command, folio)).toString("base64") };
   }
   async getInvoiceStatus(providerDocumentId: string): Promise<InvoiceResult> { return { kind: "issued", providerDocumentId, folio: providerDocumentId.replace(/\D/g, "").slice(0, 8) || "1", issuedAt: new Date().toISOString(), siiStatus: "ACCEPTED" }; }
   async lookupRut(rut: string): Promise<RutLookupResult> { return { rut, razonSocial: null, autorizado: null }; }
+
+  async getFoliosStatus(): Promise<FolioStatusItem[]> {
+    return [
+      { tipoDte: 33, tipoNombre: "Factura Electrónica", disponibles: fakeFolioCounts[33] ?? 45, rangoDesde: 1, rangoHasta: 100, alerta: (fakeFolioCounts[33] ?? 45) <= 10 ? "low" : "normal" },
+      { tipoDte: 39, tipoNombre: "Boleta Electrónica", disponibles: fakeFolioCounts[39] ?? 120, rangoDesde: 1, rangoHasta: 500, alerta: "normal" },
+      { tipoDte: 61, tipoNombre: "Nota de Crédito", disponibles: fakeFolioCounts[61] ?? 30, rangoDesde: 1, rangoHasta: 50, alerta: "normal" },
+    ];
+  }
+
+  async requestFolios(command: RequestFoliosCommand): Promise<RequestFoliosResult> {
+    fakeFolioCounts[command.tipoDte] = (fakeFolioCounts[command.tipoDte] ?? 0) + command.cantidad;
+    return {
+      ok: true,
+      tipoDte: command.tipoDte,
+      cantidadOtorgada: command.cantidad,
+      rangoDesde: 101,
+      rangoHasta: 100 + command.cantidad,
+      message: `Simulador: Se solicitaron y otorgaron ${command.cantidad} folios para DTE ${command.tipoDte}. Saldo actual: ${fakeFolioCounts[command.tipoDte]}.`,
+    };
+  }
 }
 
 class ClosedHttpGateway implements IntellyDteGateway {
@@ -168,6 +298,16 @@ class ClosedHttpGateway implements IntellyDteGateway {
   async issueInvoice(): Promise<InvoiceResult> { return this.unavailable(); }
   async getInvoiceStatus(): Promise<InvoiceResult> { return this.unavailable(); }
   async lookupRut(): Promise<RutLookupResult> { throw new AppError("INTELLYDTE_NOT_CONFIGURED", "Configura IntellyDTE para consultar el RUT.", 503); }
+  async getFoliosStatus(): Promise<FolioStatusItem[]> {
+    return [
+      { tipoDte: 33, tipoNombre: "Factura Electrónica", disponibles: 0, alerta: "critical" },
+      { tipoDte: 39, tipoNombre: "Boleta Electrónica", disponibles: 0, alerta: "critical" },
+      { tipoDte: 61, tipoNombre: "Nota de Crédito", disponibles: 0, alerta: "critical" },
+    ];
+  }
+  async requestFolios(): Promise<RequestFoliosResult> {
+    throw new AppError("INTELLYDTE_NOT_CONFIGURED", "Configura IntellyDTE para solicitar folios al SII.", 503);
+  }
 }
 
 export async function getIntellyDteGateway(): Promise<IntellyDteGateway> {

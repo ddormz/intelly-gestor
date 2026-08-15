@@ -2,13 +2,44 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, count, desc, eq, gte, like, lte, or, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditEvents, clients, invoices, paymentOrders } from "@/db/schema";
-import { buildAuditEvent } from "@/features/audit/service";
+import { buildAuditEvent, writeAudit } from "@/features/audit/service";
+import { sendInvoiceMessage } from "@/features/email/mailer";
+import { getFiscalEvidenceArtifact } from "@/features/billing/evidence";
 import { AppError } from "@/lib/errors";
 import type { HistoricalInvoiceCsvRow } from "./csv";
 import type { PageQuery, PageResult } from "@/lib/list-query";
 
-const invoiceFields = { id: invoices.id, orderId: paymentOrders.id, orderNumber: paymentOrders.number, clientName: clients.legalName, total: paymentOrders.total, status: invoices.status, folio: invoices.folio, siiStatus: invoices.siiStatus, siiGlosa: invoices.siiGlosa, hasPdf: invoices.reconstructedPdfEvidenceId, hasXml: invoices.signedXmlEvidenceId, createdAt: invoices.createdAt };
-type InvoiceListItem = { id: string; orderId: string; orderNumber: string; clientName: string; total: string; status: "pending" | "processing" | "issued" | "rejected"; folio: string | null; siiStatus: string | null; siiGlosa: string | null; hasPdf: string | null; hasXml: string | null; createdAt: Date };
+const invoiceFields = {
+  id: invoices.id,
+  orderId: paymentOrders.id,
+  orderNumber: paymentOrders.number,
+  clientName: clients.legalName,
+  clientEmail: clients.email,
+  total: paymentOrders.total,
+  status: invoices.status,
+  folio: invoices.folio,
+  siiStatus: invoices.siiStatus,
+  siiGlosa: invoices.siiGlosa,
+  hasPdf: invoices.reconstructedPdfEvidenceId,
+  hasXml: invoices.signedXmlEvidenceId,
+  createdAt: invoices.createdAt,
+};
+
+export type InvoiceListItem = {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  clientName: string;
+  clientEmail: string;
+  total: string;
+  status: "pending" | "processing" | "issued" | "rejected";
+  folio: string | null;
+  siiStatus: string | null;
+  siiGlosa: string | null;
+  hasPdf: string | null;
+  hasXml: string | null;
+  createdAt: Date;
+};
 
 export function listInvoices(): Promise<InvoiceListItem[]>;
 export function listInvoices(query: PageQuery): Promise<PageResult<InvoiceListItem>>;
@@ -65,4 +96,58 @@ export async function importHistoricalInvoices(rows: HistoricalInvoiceCsvRow[], 
     await tx.insert(auditEvents).values(buildAuditEvent({ actorUserId, actorType: "user", action: "invoices.historical_imported", entityType: "invoice", metadata: { created: resolved.length } }));
   });
   return resolved.length;
+}
+
+export async function sendInvoiceEmail(invoiceId: string, actorUserId: string, targetEmail?: string): Promise<{ recipient: string; folio: string }> {
+  const db = getDb();
+  const [invoice] = await db
+    .select({
+      id: invoices.id,
+      status: invoices.status,
+      folio: invoices.folio,
+      orderNumber: paymentOrders.number,
+      clientName: clients.legalName,
+      clientEmail: clients.email,
+    })
+    .from(invoices)
+    .innerJoin(paymentOrders, eq(paymentOrders.id, invoices.paymentOrderId))
+    .innerJoin(clients, eq(clients.id, paymentOrders.clientId))
+    .where(eq(invoices.id, invoiceId))
+    .limit(1)
+    .execute();
+
+  if (!invoice) throw new AppError("INVOICE_NOT_FOUND", "Factura no encontrada.", 404);
+  if (invoice.status !== "issued") throw new AppError("INVOICE_NOT_ISSUED", "La factura debe estar emitida para enviarla por correo.");
+
+  const recipient = (targetEmail?.trim() || invoice.clientEmail).trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+    throw new AppError("INVOICE_EMAIL_INVALID", "El correo de destino no es válido.");
+  }
+
+  const pdfArtifact = await getFiscalEvidenceArtifact(invoiceId, "reconstructed_pdf");
+  if (!pdfArtifact?.bytes) {
+    throw new AppError("INVOICE_PDF_NOT_FOUND", "El archivo PDF fiscal no está disponible para adjuntar.");
+  }
+
+  const xmlArtifact = await getFiscalEvidenceArtifact(invoiceId, "signed_xml");
+  const xmlString = xmlArtifact?.bytes ? Buffer.from(xmlArtifact.bytes).toString("latin1") : undefined;
+
+  await sendInvoiceMessage({
+    to: recipient,
+    name: invoice.clientName,
+    folio: Number(invoice.folio || 0),
+    pdf: pdfArtifact.bytes,
+    xml: xmlString,
+  });
+
+  await writeAudit({
+    actorUserId,
+    actorType: "user",
+    action: "invoice.emailed",
+    entityType: "invoice",
+    entityId: invoiceId,
+    metadata: { recipient, folio: invoice.folio },
+  });
+
+  return { recipient, folio: invoice.folio ?? "0" };
 }

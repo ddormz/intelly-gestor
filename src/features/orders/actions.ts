@@ -111,9 +111,11 @@ export async function sendOrderEmailAction(_: ActionState, formData: FormData): 
     await enforceSameOrigin();
     const user = await requireUser();
     const id = String(formData.get("id"));
-    const result = await sendOrderEmail(id, user.userId);
+    const emailOption = String(formData.get("emailOption") ?? "registered");
+    const customEmail = emailOption === "custom" ? String(formData.get("customEmail") ?? "") : undefined;
+    const result = await sendOrderEmail(id, user.userId, {}, customEmail);
     revalidatePath("/ordenes");
-    return { status: "success", message: "Orden enviada por correo.", data: { publicLink: result.publicLink } };
+    return { status: "success", message: `Orden enviada por correo${customEmail ? ` a ${customEmail}` : ""}.`, data: { publicLink: result.publicLink } };
   } catch (error) { return failure(error); }
 }
 
