@@ -4,6 +4,7 @@ import { CreditCard, Database, Download, KeyRound, Mail, PlugZap, ShieldCheck, T
 import { ActionModal, Badge, Card, EmptyState, Field, IconButton, Input, PageHeader, Pagination, TableShell, TableToolbar } from "@/components/ui";
 import {
   saveIntellyDteConfigAction,
+  saveWebpayConfigAction,
   testDatabaseAction,
   testIntellyDteConfigAction,
   testSmtpConfigAction,
@@ -149,9 +150,35 @@ export function IntegrationManager({
             </div>
             <Badge status="paid">Activo</Badge>
           </div>
-          <div className="flex items-center justify-between border-t border-[var(--color-border)] pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-3">
             <ActionModal
-              triggerLabel="Probar WebPay"
+              triggerLabel="Configurar"
+              triggerIcon={<KeyRound size={14} className="mr-1 inline" />}
+              variant="secondary"
+              title="Configurar Transbank WebPay Plus"
+              description="Ingresa tu Código de Comercio y API Key proporcionados por Transbank."
+              submitLabel="Guardar credenciales"
+              action={saveWebpayConfigAction}
+            >
+              {(state) => (
+                <>
+                  <Field label="Código de Comercio" error={state.fieldErrors?.commerceCode?.[0]} hint="Para pruebas usa: 597055555532">
+                    <Input required name="commerceCode" placeholder="597055555532" defaultValue="597055555532" />
+                  </Field>
+                  <Field label="API Key (Secret)" error={state.fieldErrors?.apiKey?.[0]} hint="Para pruebas usa la llave pública de integración o tu llave privada de producción.">
+                    <Input name="apiKey" type="password" autoComplete="off" placeholder="••••••••••••••••••••••••••••••••" />
+                  </Field>
+                  <Field label="Ambiente" error={state.fieldErrors?.environment?.[0]}>
+                    <select name="environment" defaultValue="integration" className="field">
+                      <option value="integration">Integración / Sandbox (Pruebas)</option>
+                      <option value="production">Producción (Transbank Real)</option>
+                    </select>
+                  </Field>
+                </>
+              )}
+            </ActionModal>
+            <ActionModal
+              triggerLabel="Probar"
               triggerIcon={<TestTube2 size={14} className="mr-1 inline" />}
               variant="secondary"
               title="Test de Conexión a Transbank WebPay"

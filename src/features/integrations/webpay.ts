@@ -1,7 +1,8 @@
 import { getDb } from "@/db";
 import { integrationConfigs } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { decryptSecret } from "@/lib/encryption";
+import { randomUUID } from "node:crypto";
+import { decryptSecret, encryptSecret } from "@/lib/encryption";
 import { getEnv } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 
@@ -19,6 +20,8 @@ export type WebpayConfig = {
 };
 
 export async function getWebpayConfig(): Promise<WebpayConfig> {
+  const env = getEnv();
+
   const [row] = await getDb()
     .select()
     .from(integrationConfigs)
@@ -26,40 +29,103 @@ export async function getWebpayConfig(): Promise<WebpayConfig> {
     .limit(1)
     .execute();
 
-  if (!row) {
+  if (row && row.status === "active") {
+    let apiKey = env.WEBPAY_API_KEY || DEFAULT_TEST_API_KEY;
+    if (row.apiKeyCiphertext && row.apiKeyIv && row.apiKeyAuthTag && env.CREDENTIALS_ENCRYPTION_KEY) {
+      try {
+        const keyBuffer = Buffer.from(env.CREDENTIALS_ENCRYPTION_KEY, "base64");
+        apiKey = decryptSecret(
+          {
+            ciphertext: row.apiKeyCiphertext,
+            iv: row.apiKeyIv,
+            authTag: row.apiKeyAuthTag,
+          },
+          keyBuffer
+        );
+      } catch {
+        apiKey = env.WEBPAY_API_KEY || DEFAULT_TEST_API_KEY;
+      }
+    }
+
+    const isProduction = row.baseUrl.includes("webpay3g.transbank.cl") && !row.baseUrl.includes("webpay3gint");
     return {
-      commerceCode: DEFAULT_TEST_COMMERCE_CODE,
-      apiKey: DEFAULT_TEST_API_KEY,
-      isProduction: false,
-      configured: false,
+      commerceCode: row.tenantRut || env.WEBPAY_COMMERCE_CODE || DEFAULT_TEST_COMMERCE_CODE,
+      apiKey,
+      isProduction,
+      configured: true,
     };
   }
 
-  let apiKey = DEFAULT_TEST_API_KEY;
-  const env = getEnv();
-  if (row.apiKeyCiphertext && row.apiKeyIv && row.apiKeyAuthTag && env.CREDENTIALS_ENCRYPTION_KEY) {
-    try {
-      const keyBuffer = Buffer.from(env.CREDENTIALS_ENCRYPTION_KEY, "base64");
-      apiKey = decryptSecret(
-        {
-          ciphertext: row.apiKeyCiphertext,
-          iv: row.apiKeyIv,
-          authTag: row.apiKeyAuthTag,
-        },
-        keyBuffer
-      );
-    } catch {
-      apiKey = DEFAULT_TEST_API_KEY;
-    }
+  // Fallback to environment variables
+  if (env.WEBPAY_COMMERCE_CODE && env.WEBPAY_API_KEY) {
+    return {
+      commerceCode: env.WEBPAY_COMMERCE_CODE,
+      apiKey: env.WEBPAY_API_KEY,
+      isProduction: env.WEBPAY_ENVIRONMENT === "production",
+      configured: true,
+    };
   }
 
-  const isProduction = row.baseUrl.includes("webpay3g.transbank.cl") && !row.baseUrl.includes("webpay3gint");
+  // Default testing sandbox
   return {
-    commerceCode: row.tenantRut || DEFAULT_TEST_COMMERCE_CODE,
-    apiKey,
-    isProduction,
-    configured: true,
+    commerceCode: DEFAULT_TEST_COMMERCE_CODE,
+    apiKey: DEFAULT_TEST_API_KEY,
+    isProduction: false,
+    configured: false,
   };
+}
+
+export async function saveWebpayConfig(input: {
+  commerceCode: string;
+  apiKey?: string;
+  environment: "integration" | "production";
+  userId: string;
+}): Promise<void> {
+  const env = getEnv();
+  const baseUrl = input.environment === "production" ? WEBPAY_PRODUCTION_URL : WEBPAY_INTEGRATION_URL;
+
+  const [existing] = await getDb()
+    .select()
+    .from(integrationConfigs)
+    .where(eq(integrationConfigs.integration, "webpay"))
+    .limit(1)
+    .execute();
+
+  let encrypted: { ciphertext: string; iv: string; authTag: string; lastFour: string };
+  if (input.apiKey?.trim()) {
+    if (!env.CREDENTIALS_ENCRYPTION_KEY) {
+      throw new AppError("ENCRYPTION_NOT_CONFIGURED", "Configura CREDENTIALS_ENCRYPTION_KEY para cifrar la API Key de WebPay.");
+    }
+    const keyBuffer = Buffer.from(env.CREDENTIALS_ENCRYPTION_KEY, "base64");
+    const result = encryptSecret(input.apiKey.trim(), keyBuffer);
+    encrypted = { ...result, lastFour: input.apiKey.trim().slice(-4) };
+  } else if (existing?.apiKeyCiphertext && existing.apiKeyIv && existing.apiKeyAuthTag) {
+    encrypted = {
+      ciphertext: existing.apiKeyCiphertext,
+      iv: existing.apiKeyIv,
+      authTag: existing.apiKeyAuthTag,
+      lastFour: existing.apiKeyLastFour ?? "••••",
+    };
+  } else {
+    throw new AppError("API_KEY_REQUIRED", "Ingresa la API Key de Transbank WebPay.");
+  }
+
+  const set = {
+    baseUrl,
+    tenantRut: input.commerceCode.trim(),
+    apiKeyCiphertext: encrypted.ciphertext,
+    apiKeyIv: encrypted.iv,
+    apiKeyAuthTag: encrypted.authTag,
+    apiKeyLastFour: encrypted.lastFour,
+    status: "active" as const,
+    updatedBy: input.userId,
+    updatedAt: new Date(),
+  };
+
+  await getDb()
+    .insert(integrationConfigs)
+    .values({ id: existing?.id ?? randomUUID(), integration: "webpay", ...set })
+    .onDuplicateKeyUpdate({ set });
 }
 
 export type WebpayCreateResult = {
@@ -196,7 +262,7 @@ export async function testWebpayConnection(): Promise<{ ok: boolean; safeMessage
     if (response.ok) {
       return {
         ok: true,
-        safeMessage: `WebPay Plus conectado correctamente (${config.isProduction ? "Producción" : "Ambiente de Integración"}) con código ${config.commerceCode}`,
+        safeMessage: `WebPay Plus conectado correctamente (${config.isProduction ? "Producción" : "Ambiente de Integración/Pruebas"}) con código ${config.commerceCode}`,
       };
     }
     return {

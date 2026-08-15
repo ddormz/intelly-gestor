@@ -10,7 +10,7 @@ import type { ActionState } from "@/lib/action-state";
 const initialState: ActionState = { status: "idle" };
 
 export function CompanyManager({ company }: { company: CompanyProfile }) {
-  const [state, formAction, pending] = useActionState(saveCompanySettingsAction, initialState);
+  const [state, formAction] = useActionState(saveCompanySettingsAction, initialState);
 
   return <div className="space-y-6">
     <PageHeader

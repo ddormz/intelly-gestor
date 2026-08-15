@@ -31,6 +31,9 @@ const envSchema = z.object({
   INTELLYDTE_EMISSION_MODE: z.enum(["sync", "async", "fast-ack"]).default("async"),
   INTELLYDTE_WEBHOOK_SECRET: z.string().trim().optional(),
   FISCAL_EVIDENCE_DIR: z.string().trim().min(1).default("data/fiscal-evidence"),
+  WEBPAY_COMMERCE_CODE: z.string().trim().optional(),
+  WEBPAY_API_KEY: z.string().trim().optional(),
+  WEBPAY_ENVIRONMENT: z.enum(["integration", "production"]).default("integration"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

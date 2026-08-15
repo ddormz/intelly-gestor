@@ -6,7 +6,7 @@ import { databaseHealth } from "@/db";
 import { requireUser } from "@/features/auth/session";
 import { writeAudit } from "@/features/audit/service";
 import { testSmtpConnection } from "@/features/email/mailer";
-import { testWebpayConnection } from "./webpay";
+import { saveWebpayConfig, testWebpayConnection } from "./webpay";
 import { enforceSameOrigin } from "@/lib/security";
 import { formObject } from "@/lib/validation";
 import { safeError } from "@/lib/errors";
@@ -33,6 +33,34 @@ export async function saveIntellyDteConfigAction(_: ActionState, formData: FormD
     await writeAudit({ actorUserId: user.userId, actorType: "user", action: "integration.configured", entityType: "integration", entityId: "intellydte", metadata: { baseUrl: parsed.data.baseUrl } });
     revalidatePath("/integraciones");
     return { status: "success", message: "Configuración guardada." };
+  } catch (error) {
+    return { status: "error", message: safeError(error).message };
+  }
+}
+
+const webpaySchema = z.object({
+  commerceCode: z.string().trim().min(3).max(50),
+  apiKey: z.string().trim().max(500).optional(),
+  environment: z.enum(["integration", "production"]).default("integration"),
+});
+
+export async function saveWebpayConfigAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    await enforceSameOrigin();
+    const user = await requireUser("admin");
+    const parsed = webpaySchema.safeParse(formObject(formData));
+    if (!parsed.success) return { status: "error", message: "Revisa el código de comercio y la API Key.", fieldErrors: parsed.error.flatten().fieldErrors };
+    await saveWebpayConfig({ ...parsed.data, userId: user.userId });
+    await writeAudit({
+      actorUserId: user.userId,
+      actorType: "user",
+      action: "integration.configured",
+      entityType: "integration",
+      entityId: "webpay",
+      metadata: { commerceCode: parsed.data.commerceCode, environment: parsed.data.environment },
+    });
+    revalidatePath("/integraciones");
+    return { status: "success", message: "Configuración de WebPay guardada." };
   } catch (error) {
     return { status: "error", message: safeError(error).message };
   }
