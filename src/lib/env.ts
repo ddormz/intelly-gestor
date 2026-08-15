@@ -46,13 +46,23 @@ export function getEnv(): AppEnv {
   return cached;
 }
 
+function cleanEnvValue(value?: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const trimmed = String(value).trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
 export function parseAppEnv(input: Record<string, string | undefined>): AppEnv {
-  const origin = input.APP_ORIGIN || "http://localhost:3000";
-  const normalized = {
-    ...input,
-    APP_URL: input.APP_URL || origin,
-  };
-  return envSchema.parse(normalized);
+  const cleaned: Record<string, string | undefined> = {};
+  for (const [key, val] of Object.entries(input)) {
+    cleaned[key] = cleanEnvValue(val);
+  }
+  const origin = cleaned.APP_ORIGIN || "http://localhost:3000";
+  cleaned.APP_URL = cleaned.APP_URL || origin;
+  return envSchema.parse(cleaned);
 }
 
 export function publicConfig() {
