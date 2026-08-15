@@ -5,16 +5,16 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { sessions, users } from "@/db/schema";
+import { auditEvents, sessions, users } from "@/db/schema";
 import { requireUser } from "@/features/auth/session";
 import { hashPassword } from "@/features/auth/password";
-import { writeAudit } from "@/features/audit/service";
+import { buildAuditEvent, writeAudit } from "@/features/audit/service";
 import { enforceSameOrigin } from "@/lib/security";
 import { formObject } from "@/lib/validation";
 import { AppError, safeError } from "@/lib/errors";
 import { readCsvFile } from "@/lib/csv";
 import type { ActionState } from "@/lib/action-state";
-import { assertUserStatusChangeAllowed, userStatusSchema, userUpdateSchema } from "./admin-service";
+import { assertUserStatusChangeAllowed, resolveImportedUserStatus, userStatusSchema, userUpdateSchema } from "./admin-service";
 import { parseUsersCsv } from "./users-csv";
 
 const createSchema = z.object({ name: z.string().trim().min(2).max(120), email: z.string().trim().email().transform((value) => value.toLowerCase()), password: z.string().min(12).max(128), role: z.enum(["admin", "operator"]) });
@@ -76,7 +76,7 @@ export async function importUsersAction(_: ActionState, formData: FormData): Pro
     await getDb().transaction(async (tx) => {
       for (const item of prepared) {
         if (item.found) {
-          const nextStatus = item.row.status === "disabled" ? "disabled" : item.found.status;
+          const nextStatus = resolveImportedUserStatus(current.userId, item.found.id, item.found.status, item.row.status);
           await tx.update(users).set({ name: item.row.name, role: item.row.role, status: nextStatus, updatedAt: new Date() }).where(eq(users.id, item.found.id));
           if (nextStatus === "disabled") await tx.update(sessions).set({ revokedAt: new Date() }).where(eq(sessions.userId, item.found.id));
           updated++;
@@ -87,8 +87,8 @@ export async function importUsersAction(_: ActionState, formData: FormData): Pro
           created++;
         }
       }
+      await tx.insert(auditEvents).values(buildAuditEvent({ actorUserId: current.userId, actorType: "user", action: "users.imported", entityType: "user", metadata: { created, updated } }));
     });
-    await writeAudit({ actorUserId: current.userId, actorType: "user", action: "users.imported", entityType: "user", metadata: { created, updated } });
     revalidatePath("/usuarios");
     return { status: "success", message: `Importación completada: ${created} creados y ${updated} actualizados.` };
   } catch (error) { return failure(error); }

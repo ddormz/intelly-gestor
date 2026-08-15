@@ -89,6 +89,7 @@ export const passwordResetRequests = mysqlTable("password_reset_requests", {
 }, (table) => [
   index("password_reset_requests_email_idx").on(table.emailHash, table.createdAt),
   index("password_reset_requests_ip_idx").on(table.ipHash, table.createdAt),
+  index("password_reset_requests_created_idx").on(table.createdAt),
 ]);
 
 export const clients = mysqlTable("clients", {

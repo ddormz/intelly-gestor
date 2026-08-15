@@ -51,7 +51,6 @@ export async function importDraftOrdersAction(_: ActionState, formData: FormData
     await enforceSameOrigin(); const user = await requireUser("admin");
     const rows = parseDraftOrdersCsv(await readCsvFile(formData.get("file")));
     const count = await importDraftOrders(rows, user.userId);
-    await writeAudit({ actorUserId: user.userId, actorType: "user", action: "orders.imported", entityType: "payment_order", metadata: { created: count } });
     revalidatePath("/ordenes"); revalidatePath("/");
     return { status: "success", message: `${count} borradores importados.` };
   } catch (error) { return failure(error); }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertTransition, calculateOrder } from "@/features/orders/domain";
+import { assertClientCanReceiveOrder, assertTransition, calculateOrder } from "@/features/orders/domain";
 import { clp } from "@/lib/money";
 
 describe("payment-order domain", () => {
@@ -15,5 +15,10 @@ describe("payment-order domain", () => {
     expect(() => assertTransition("issued", "paid")).not.toThrow();
     expect(() => assertTransition("draft", "paid")).toThrow(/No se puede/);
     expect(() => assertTransition("invoiced", "cancelled")).toThrow(/No se puede/);
+  });
+
+  it("rejects inactive clients before creating an order", () => {
+    expect(() => assertClientCanReceiveOrder("active")).not.toThrow();
+    expect(() => assertClientCanReceiveOrder("inactive")).toThrow(/cliente no estÃ¡ activo/i);
   });
 });

@@ -3,10 +3,10 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { clients } from "@/db/schema";
+import { auditEvents, clients } from "@/db/schema";
 import { getDb } from "@/db";
 import { requireUser } from "@/features/auth/session";
-import { writeAudit } from "@/features/audit/service";
+import { buildAuditEvent, writeAudit } from "@/features/audit/service";
 import { clientSchema, clientStatusSchema, clientUpdateSchema } from "./validation";
 import { normalizeRutKey, parseClientCsv } from "./csv";
 import { enforceSameOrigin } from "@/lib/security";
@@ -89,8 +89,8 @@ export async function importClientsAction(_: ActionState, formData: FormData): P
           created++;
         }
       }
+      await tx.insert(auditEvents).values(buildAuditEvent({ actorUserId: user.userId, actorType: "user", action: "clients.imported", entityType: "client", metadata: { created, updated } }));
     });
-    await writeAudit({ actorUserId: user.userId, actorType: "user", action: "clients.imported", entityType: "client", metadata: { created, updated } });
     revalidatePath("/clientes"); revalidatePath("/ordenes");
     return { status: "success", message: `Importación completada: ${created} creados y ${updated} actualizados.` };
   } catch (error) { return failure(error); }

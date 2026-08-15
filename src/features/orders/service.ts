@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
-import { catalogItems, clients, paymentOrderLines, paymentOrders, payments } from "@/db/schema";
+import { auditEvents, catalogItems, clients, paymentOrderLines, paymentOrders, payments } from "@/db/schema";
+import { buildAuditEvent } from "@/features/audit/service";
 import { AppError } from "@/lib/errors";
 import { hashToken, randomToken } from "@/lib/security";
-import { assertTransition, calculateOrder } from "./domain";
+import { assertClientCanReceiveOrder, assertTransition, calculateOrder } from "./domain";
 import { clp } from "@/lib/money";
 import type { DraftOrderCsvRow } from "./csv";
 import { normalizeRutKey } from "@/features/clients/csv";
@@ -15,16 +16,21 @@ export async function listOrders() {
 }
 
 export async function createOrder(input: { clientId: string; catalogItemId: string; quantity: number; userId: string }) {
-  const [item] = await getDb().select().from(catalogItems).where(and(eq(catalogItems.id, input.catalogItemId), eq(catalogItems.status, "active"))).limit(1);
-  if (!item) throw new AppError("ITEM_NOT_FOUND", "El producto o servicio no está disponible.", 404);
-  const calculated = calculateOrder([{ description: item.name, quantity: input.quantity, unitPrice: clp(BigInt(item.unitPrice.split(".")[0])), taxRate: Number(item.taxRate) }]);
-  const id = randomUUID();
-  const number = `OP-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${id.slice(0, 6).toUpperCase()}`;
-  await getDb().transaction(async (tx) => {
+  return getDb().transaction(async (tx) => {
+    const [[client], [item]] = await Promise.all([
+      tx.select({ status: clients.status }).from(clients).where(eq(clients.id, input.clientId)).limit(1).for("update"),
+      tx.select().from(catalogItems).where(eq(catalogItems.id, input.catalogItemId)).limit(1).for("update"),
+    ]);
+    if (!client) throw new AppError("CLIENT_NOT_FOUND", "Cliente no encontrado.", 404);
+    assertClientCanReceiveOrder(client.status);
+    if (!item || item.status !== "active") throw new AppError("ITEM_NOT_FOUND", "El producto o servicio no está disponible.", 404);
+    const calculated = calculateOrder([{ description: item.name, quantity: input.quantity, unitPrice: clp(BigInt(item.unitPrice.split(".")[0])), taxRate: Number(item.taxRate) }]);
+    const id = randomUUID();
+    const number = `OP-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${id.slice(0, 6).toUpperCase()}`;
     await tx.insert(paymentOrders).values({ id, number, clientId: input.clientId, status: "draft", currency: "CLP", subtotal: String(calculated.subtotal.minor), taxTotal: String(calculated.tax.minor), total: String(calculated.total.minor), createdBy: input.userId, updatedBy: input.userId });
     await tx.insert(paymentOrderLines).values({ id: randomUUID(), paymentOrderId: id, catalogItemId: item.id, code: item.code, description: item.name, quantity: String(input.quantity), unitPrice: item.unitPrice, taxRate: item.taxRate, subtotal: String(calculated.subtotal.minor), taxAmount: String(calculated.tax.minor), total: String(calculated.total.minor) });
+    return id;
   });
-  return id;
 }
 
 export async function importDraftOrders(rows: DraftOrderCsvRow[], userId: string): Promise<number> {
@@ -49,6 +55,7 @@ export async function importDraftOrders(rows: DraftOrderCsvRow[], userId: string
       await tx.insert(paymentOrders).values({ id, number, clientId: row.client.id, status: "draft", currency: "CLP", subtotal: String(calculated.subtotal.minor), taxTotal: String(calculated.tax.minor), total: String(calculated.total.minor), createdBy: userId, updatedBy: userId });
       await tx.insert(paymentOrderLines).values({ id: randomUUID(), paymentOrderId: id, catalogItemId: row.item.id, code: row.item.code, description: row.item.name, quantity: String(row.quantity), unitPrice: row.item.unitPrice, taxRate: row.item.taxRate, subtotal: String(calculated.subtotal.minor), taxAmount: String(calculated.tax.minor), total: String(calculated.total.minor) });
     }
+    await tx.insert(auditEvents).values(buildAuditEvent({ actorUserId: userId, actorType: "user", action: "orders.imported", entityType: "payment_order", metadata: { created: resolved.length } }));
   });
   return resolved.length;
 }

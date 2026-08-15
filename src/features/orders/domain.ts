@@ -4,6 +4,10 @@ import { addMoney, calculateTax, clp, multiplyMoney, type Money } from "@/lib/mo
 export type OrderStatus = "draft" | "issued" | "paid" | "expired" | "cancelled" | "invoiced";
 export type OrderLineInput = { description: string; quantity: number; unitPrice: Money; taxRate: number };
 
+export function assertClientCanReceiveOrder(status: "active" | "inactive"): void {
+  if (status !== "active") throw new AppError("CLIENT_INACTIVE", "El cliente no estÃ¡ activo.", 409);
+}
+
 export function calculateOrder(lines: OrderLineInput[]) {
   if (lines.length === 0) throw new AppError("EMPTY_ORDER", "Agrega al menos un concepto.");
   const calculated = lines.map((line) => {

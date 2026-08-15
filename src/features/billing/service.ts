@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { clients, invoices, paymentOrders } from "@/db/schema";
+import { auditEvents, clients, invoices, paymentOrders } from "@/db/schema";
+import { buildAuditEvent } from "@/features/audit/service";
 import { AppError } from "@/lib/errors";
 import type { HistoricalInvoiceCsvRow } from "./csv";
 
@@ -15,7 +16,7 @@ export function listPaidOrdersWithoutInvoice() {
     .from(paymentOrders).innerJoin(clients, eq(clients.id, paymentOrders.clientId)).where(eq(paymentOrders.status, "paid")).limit(100);
 }
 
-export async function importHistoricalInvoices(rows: HistoricalInvoiceCsvRow[]): Promise<number> {
+export async function importHistoricalInvoices(rows: HistoricalInvoiceCsvRow[], actorUserId: string): Promise<number> {
   const [orders, existingInvoices] = await Promise.all([
     getDb().select().from(paymentOrders),
     getDb().select({ orderId: invoices.paymentOrderId, providerDocumentId: invoices.providerDocumentId }).from(invoices),
@@ -37,6 +38,7 @@ export async function importHistoricalInvoices(rows: HistoricalInvoiceCsvRow[]):
       await tx.insert(invoices).values({ id: randomUUID(), paymentOrderId: order.id, status: "issued", providerDocumentId: row.providerDocumentId, folio: row.folio, requestHash, issuedAt: row.issuedAt });
       await tx.update(paymentOrders).set({ status: "invoiced", invoicedAt: row.issuedAt, updatedAt: new Date() }).where(eq(paymentOrders.id, order.id));
     }
+    await tx.insert(auditEvents).values(buildAuditEvent({ actorUserId, actorType: "user", action: "invoices.historical_imported", entityType: "invoice", metadata: { created: resolved.length } }));
   });
   return resolved.length;
 }

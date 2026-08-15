@@ -4,8 +4,8 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getDb } from "@/db";
-import { catalogItems } from "@/db/schema";
-import { writeAudit } from "@/features/audit/service";
+import { auditEvents, catalogItems } from "@/db/schema";
+import { buildAuditEvent, writeAudit } from "@/features/audit/service";
 import { requireUser } from "@/features/auth/session";
 import { enforceSameOrigin } from "@/lib/security";
 import { formObject } from "@/lib/validation";
@@ -86,8 +86,8 @@ export async function importCatalogAction(_: ActionState, formData: FormData): P
           created++;
         }
       }
+      await tx.insert(auditEvents).values(buildAuditEvent({ actorUserId: user.userId, actorType: "user", action: "catalog.imported", entityType: "catalog_item", metadata: { created, updated } }));
     });
-    await writeAudit({ actorUserId: user.userId, actorType: "user", action: "catalog.imported", entityType: "catalog_item", metadata: { created, updated } });
     revalidatePath("/productos-servicios"); revalidatePath("/ordenes");
     return { status: "success", message: `Importación completada: ${created} creados y ${updated} actualizados.` };
   } catch (error) { return failure(error); }

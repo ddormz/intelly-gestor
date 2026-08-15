@@ -13,8 +13,8 @@ type AuditInput = {
   metadata?: Record<string, unknown>;
 };
 
-export async function writeAudit(input: AuditInput): Promise<void> {
-  await getDb().insert(auditEvents).values({
+export function buildAuditEvent(input: AuditInput) {
+  return {
     id: randomUUID(),
     actorUserId: input.actorUserId,
     actorType: input.actorType,
@@ -23,5 +23,9 @@ export async function writeAudit(input: AuditInput): Promise<void> {
     entityId: input.entityId,
     correlationId: input.correlationId ?? randomUUID(),
     metadata: redactMetadata(input.metadata ?? {}),
-  });
+  };
+}
+
+export async function writeAudit(input: AuditInput): Promise<void> {
+  await getDb().insert(auditEvents).values(buildAuditEvent(input));
 }

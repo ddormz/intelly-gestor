@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertUserStatusChangeAllowed, userStatusSchema, userUpdateSchema } from "@/features/auth/admin-service";
+import { assertUserStatusChangeAllowed, resolveImportedUserStatus, userStatusSchema, userUpdateSchema } from "@/features/auth/admin-service";
 import { parseUsersCsv, serializeUsersCsv } from "@/features/auth/users-csv";
 
 const currentId = "4fc73a41-4f1f-4bd1-a775-21b93af922d4";
@@ -9,6 +9,12 @@ describe("user management", () => {
   it("rejects self-deactivation but permits disabling another user", () => {
     expect(() => assertUserStatusChangeAllowed(currentId, currentId, "disabled")).toThrow(/propia cuenta/i);
     expect(() => assertUserStatusChangeAllowed(currentId, otherId, "disabled")).not.toThrow();
+  });
+
+  it("applies the self-deactivation policy during CSV imports", () => {
+    expect(() => resolveImportedUserStatus(currentId, currentId, "active", "disabled")).toThrow(/propia cuenta/i);
+    expect(resolveImportedUserStatus(currentId, otherId, "active", "disabled")).toBe("disabled");
+    expect(resolveImportedUserStatus(currentId, otherId, "disabled", "active")).toBe("disabled");
   });
 
   it("validates user updates and statuses", () => {

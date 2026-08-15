@@ -1,7 +1,9 @@
 # Intelly Gestor: CRUD, CSV y recuperación de contraseña
 
-**Fecha:** 2026-08-14  
-**Estado:** Aprobado para planificación técnica  
+**Fecha:** 2026-08-14
+
+**Estado:** Aprobado para planificación técnica
+
 **Alcance:** Segunda iteración funcional y de experiencia sobre el branding Intelly ya publicado.
 
 ## Objetivo

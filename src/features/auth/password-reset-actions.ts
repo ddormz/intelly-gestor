@@ -8,13 +8,14 @@ import { writeAudit } from "@/features/audit/service";
 import { enforceSameOrigin } from "@/lib/security";
 import { safeError } from "@/lib/errors";
 import type { ActionState } from "@/lib/action-state";
+import { normalizeRequestIp } from "./request-ip";
 
 const emailSchema = z.string().trim().email("Ingresa un correo válido.").max(254).transform((value) => value.toLowerCase());
 const resetSchema = z.object({ token: z.string().min(20), password: z.string().min(12, "Usa al menos 12 caracteres.").max(128), confirmation: z.string() }).refine((input) => input.password === input.confirmation, { path: ["confirmation"], message: "Las contraseñas no coinciden." });
 
 async function requestIp(): Promise<string> {
   const values = await headers();
-  return values.get("x-forwarded-for")?.split(",")[0]?.trim() || values.get("x-real-ip") || "unknown";
+  return normalizeRequestIp(values.get("x-real-ip"), values.get("x-forwarded-for"));
 }
 
 export async function requestPasswordResetAction(_: ActionState, formData: FormData): Promise<ActionState> {

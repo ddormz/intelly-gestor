@@ -6,7 +6,6 @@ import { revalidatePath } from "next/cache";
 import { getDb } from "@/db";
 import { clients, integrationAttempts, invoices, paymentOrders } from "@/db/schema";
 import { requireUser } from "@/features/auth/session";
-import { writeAudit } from "@/features/audit/service";
 import { getIntellyDteGateway } from "@/features/integrations/intellydte";
 import { AppError } from "@/lib/errors";
 import { enforceSameOrigin } from "@/lib/security";
@@ -48,8 +47,7 @@ export async function importHistoricalInvoicesAction(_: ActionState, formData: F
     await enforceSameOrigin();
     const user = await requireUser("admin");
     const rows = parseHistoricalInvoicesCsv(await readCsvFile(formData.get("file")));
-    const count = await importHistoricalInvoices(rows);
-    await writeAudit({ actorUserId: user.userId, actorType: "user", action: "invoices.historical_imported", entityType: "invoice", metadata: { created: count } });
+    const count = await importHistoricalInvoices(rows, user.userId);
     revalidatePath("/facturacion"); revalidatePath("/ordenes"); revalidatePath("/");
     return { status: "success", message: `${count} facturas históricas importadas por ${user.name}.` };
   } catch (error) {

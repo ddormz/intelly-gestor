@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { consumePasswordReset, createPasswordResetToken, requestPasswordReset, type PasswordResetDependencies } from "@/features/auth/password-reset";
+import { normalizeRequestIp } from "@/features/auth/request-ip";
 
 const now = new Date("2026-08-14T12:00:00.000Z");
 
@@ -18,7 +19,10 @@ function dependencies(user: { id: string; email: string; name: string } | null):
         async findActiveUser() { return user; },
         async replaceToken(userId, token) { stored = { userId, tokenHash: token.tokenHash, expiresAt: token.expiresAt }; },
         async findUsableToken(tokenHash) { return stored?.tokenHash === tokenHash && stored.expiresAt > now ? { tokenId: "token-1", userId: stored.userId } : null; },
-        async completeReset(input) { completed.push(`${input.tokenId}:${input.userId}:${input.passwordHash}`); },
+        async completeReset(input) {
+          if (!stored || input.tokenHash !== stored.tokenHash || input.now >= stored.expiresAt) throw new Error("expired");
+          completed.push(`${input.tokenId}:${input.userId}:${input.passwordHash}`);
+        },
       },
       async sendResetEmail(input) { sent.push(input.to); },
       async hashPassword() { return "argon-hash"; },
@@ -27,6 +31,12 @@ function dependencies(user: { id: string; email: string; name: string } | null):
 }
 
 describe("password recovery", () => {
+  it("accepts only valid proxy IP values and prefers the nearest proxy hop", () => {
+    expect(normalizeRequestIp("127.0.0.1", "198.51.100.10, 203.0.113.7")).toBe("127.0.0.1");
+    expect(normalizeRequestIp(null, "198.51.100.10, 203.0.113.7")).toBe("203.0.113.7");
+    expect(normalizeRequestIp("not-an-ip", "spoofed")).toBe("unknown");
+  });
+
   it("creates a random token while storing only its hash for 30 minutes", () => {
     const result = createPasswordResetToken(now, "raw-reset-token");
     expect(result.token).toBe("raw-reset-token");
@@ -51,5 +61,16 @@ describe("password recovery", () => {
     await consumePasswordReset(deliveredToken, "UnaClaveNueva123", context.deps);
     expect(context.completed).toEqual(["token-1:user-1:argon-hash"]);
     await expect(consumePasswordReset("token-invalido", "UnaClaveNueva123", context.deps)).rejects.toThrow(/inválido o venció/i);
+  });
+
+  it("rechecks expiration after the password hash finishes", async () => {
+    const context = dependencies({ id: "user-1", email: "persona@intelly.cl", name: "Persona" });
+    let deliveredToken = "";
+    let calls = 0;
+    context.deps.now = () => calls++ < 2 ? now : new Date("2026-08-14T12:31:00.000Z");
+    context.deps.sendResetEmail = async (input) => { deliveredToken = new URL(input.resetUrl).searchParams.get("token") ?? ""; };
+    await requestPasswordReset("persona@intelly.cl", "127.0.0.1", context.deps);
+    await expect(consumePasswordReset(deliveredToken, "UnaClaveNueva123", context.deps)).rejects.toThrow(/venciÃ³|expired/i);
+    expect(context.completed).toEqual([]);
   });
 });
