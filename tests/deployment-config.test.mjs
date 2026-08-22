@@ -22,6 +22,23 @@ test("runs the secure bootstrap through the standard production start command", 
   await access(new URL("scripts/start-production.ts", root));
 });
 
+test("validates migrations and the complete application on every pushed revision", async () => {
+  const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+
+  assert.match(workflow, /^on:\s*[\s\S]*?push:/m);
+  assert.match(workflow, /image:\s*mysql:8\.4/);
+  for (const command of [
+    "npm ci",
+    "npm run db:migrate",
+    "npm test",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+  ]) {
+    assert.match(workflow, new RegExp(`run: ${command.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}`));
+  }
+});
+
 test("runs the secure bootstrap before managed production builds", async () => {
   const pkg = JSON.parse(await readFile(new URL("package.json", root), "utf8"));
   assert.equal(pkg.scripts.prebuild, "tsx scripts/bootstrap-build.ts");

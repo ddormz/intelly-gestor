@@ -21,9 +21,11 @@ Después de asociar el dominio, comprobar que `https://gestion.intelly.cl` carga
 ## Publicación normal
 
 1. Revisar y fusionar el cambio aprobado en `main`.
-2. Hacer `git push` de `main` a GitHub.
-3. Esperar que Hostinger instale dependencias, ejecute `npm run build` e inicie con `npm run start`.
-4. Verificar la URL HTTPS y las funciones principales antes de anunciar el despliegue.
+2. Hacer `git push` de `main` a GitHub. El workflow `CI` levanta MySQL 8.4 desechable, aplica todas las migraciones y ejecuta tests, tipos, lint y build.
+3. No desplegar una revisión cuyo workflow `CI` esté fallando.
+4. Esperar que Hostinger instale dependencias, ejecute `npm run build` e inicie con `npm run start`.
+5. El comando de inicio obtiene un bloqueo MySQL y ejecuta las migraciones de producción antes de iniciar Next.js. Si la migración falla, la nueva aplicación no inicia.
+6. Verificar la URL HTTPS, `/api/health` y las funciones principales antes de anunciar el despliegue.
 
 ## Respaldo y migración de datos
 

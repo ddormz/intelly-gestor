@@ -1,12 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "@/db";
 import { issueInvoice } from "@/features/billing/emission";
 import type { IntellyDteGateway } from "@/features/integrations/intellydte";
 
 vi.mock("@/db", () => ({ getDb: vi.fn() }));
-vi.mock("@/features/integrations/config-service", () => ({ getIntellyDteConfig: vi.fn(async () => ({ baseUrl: "https://dte.example", tenantApiKey: "ik_tenant", systemApiKey: "isk_system", tenantRut: "12345678-5", apiKey: "ik_tenant" })), getIntellyDteWebhookSecret: vi.fn() }));
+vi.mock("@/features/integrations/config-service", () => ({ getIntellyDteConfig: vi.fn(async () => ({ baseUrl: "https://dte.example", tenantApiKey: "ik_tenant", systemApiKey: "isk_system", tenantRut: "76123456-0", apiKey: "ik_tenant" })), getIntellyDteWebhookSecret: vi.fn() }));
 vi.mock("@/features/billing/evidence", () => ({ storeSignedXmlBytes: vi.fn(async () => ({ id: "xml-evidence", kind: "signed_xml", storageKey: "xml", sha256: "xml-hash", mimeType: "application/xml", dteType: "33", folio: "42", rendererVersion: null, version: 1, invoiceId: "invoice-1", createdAt: new Date() })), storeReconstructedPdf: vi.fn(async () => ({ id: "pdf-evidence", kind: "reconstructed_pdf", storageKey: "pdf", sha256: "pdf-hash", mimeType: "application/pdf", dteType: "33", folio: "42", rendererVersion: "fiscal-pdf-v2", version: 1, invoiceId: "invoice-1", createdAt: new Date() })) }));
-vi.mock("@/features/billing/xml", () => ({ parseSignedDteXmlBytes: vi.fn(() => ({ type: "33", folio: 42, issueDate: "2026-08-15", dueDate: null, issuer: { rut: "76123456-7", name: "EMISOR", businessLine: null, activity: null, address: null, commune: null, city: null }, receiver: { rut: "12345678-5", name: "CLIENTE SPA", businessLine: "Comercio", address: "Destino", commune: "Providencia", city: "Santiago" }, details: [{ lineNumber: 1, name: "Servicio", description: null, quantity: 2, unit: null, unitPrice: 500, amount: 1000, exempt: false, discountPercent: null, discountAmount: 0 }], totals: { net: 1000, exempt: 0, ivaRate: 19, iva: 190, total: 1190 }, references: [], resolution: { date: null, number: null }, tedXml: "<TED/>", sourceXml: "xml" })), renderFiscalPdf: vi.fn(async () => new Uint8Array(Buffer.from("%PDF-fiscal"))) }));
+vi.mock("@/features/billing/xml", () => ({ parseSignedDteXmlBytes: vi.fn(() => ({ type: "33", folio: 42, issueDate: "2026-08-15", dueDate: null, issuer: { rut: "76123456-0", name: "EMISOR", businessLine: null, activity: null, address: null, commune: null, city: null }, receiver: { rut: "12345678-5", name: "CLIENTE SPA", businessLine: "Comercio", address: "Destino", commune: "Providencia", city: "Santiago" }, details: [{ lineNumber: 1, name: "Servicio", description: null, quantity: 2, unit: null, unitPrice: 500, amount: 1000, exempt: false, discountPercent: null, discountAmount: 0 }], totals: { net: 1000, exempt: 0, ivaRate: 19, iva: 190, total: 1190 }, references: [], resolution: { date: null, number: null }, tedXml: "<TED/>", sourceXml: "xml" })), renderFiscalPdf: vi.fn(async () => new Uint8Array(Buffer.from("%PDF-fiscal"))) }));
 vi.mock("@/features/audit/service", () => ({ buildAuditEvent: vi.fn((input) => ({ id: "audit", correlationId: "corr", metadata: input.metadata })) }));
 
 function builder<T>(result: T) {
@@ -28,8 +28,14 @@ function configuredDb(existing: unknown[], attempts: unknown[]) {
 
 describe("fiscal emission orchestration", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-15T12:00:00.000Z"));
     process.env.DATABASE_URL = "mysql://user:pass@localhost:3306/app";
     process.env.INTELLYDTE_MODE = "http";
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("creates one attempt and materializes both evidence artifacts for an issued provider response", async () => {
@@ -47,7 +53,7 @@ describe("fiscal emission orchestration", () => {
   });
 
   it("reconciles an uncertain provider identifier before any second create call", async () => {
-    configuredDb([{ id: "invoice-1", paymentOrderId: "order-1", status: "pending", providerDocumentId: "dte-1", folio: null, tenantRut: "76123456-7", trackId: null, siiStatus: null, siiGlosa: null, signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null, evidenceStatus: "pending", evidenceError: null, issuedAt: null }], [{ attemptNumber: 1 }]);
+    configuredDb([{ id: "invoice-1", paymentOrderId: "order-1", status: "pending", providerDocumentId: "dte-1", folio: null, tenantRut: "76123456-0", trackId: null, siiStatus: null, siiGlosa: null, signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null, evidenceStatus: "pending", evidenceError: null, issuedAt: null }], [{ attemptNumber: 1 }]);
     const issue = vi.fn();
     const status = vi.fn(async () => ({ kind: "pending" as const, providerDocumentId: "dte-1", providerCode: "IDEMPOTENCY_IN_PROGRESS" }));
     const gateway = { issueInvoice: issue, getInvoiceStatus: status, health: vi.fn(), lookupRut: vi.fn() } as unknown as IntellyDteGateway;
