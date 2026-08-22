@@ -471,9 +471,9 @@ export function BillingManager({
                           iconOnly
                           triggerLabel={item.status === "issued" ? "Reintentar archivos tributarios" : "Actualizar estado fiscal"}
                           triggerIcon={<RefreshCw size={17} />}
-                          title="Actualizar estado fiscal"
-                          description="Se consultará IntellyDTE sin volver a emitir la factura."
-                          submitLabel="Consultar estado"
+                          title={item.status === "issued" ? "Reconstruir archivos tributarios" : "Actualizar estado fiscal"}
+                          description={item.status === "issued" ? "Se reconstruirá el PDF desde el XML guardado o se consultará IntellyDTE si el XML aún no está disponible." : "Se consultará IntellyDTE sin volver a emitir la factura."}
+                          submitLabel={item.status === "issued" ? "Reintentar archivos" : "Consultar estado"}
                           action={refreshInvoiceStatusAction}
                         >
                           {() => <input type="hidden" name="invoiceId" value={item.id} />}
