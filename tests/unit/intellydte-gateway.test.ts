@@ -21,6 +21,38 @@ describe("typed IntellyDTE gateway", () => {
     expect(result).toMatchObject({ kind: "issued", providerDocumentId: "dte-1", folio: "42", trackId: null, siiStatus: "ENQUEUED", signedXmlBase64 });
   });
 
+  it("normalizes the body.data envelope returned by IntellyDTE", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      body: {
+        success: true,
+        data: {
+          dteRecordId: "dte-wrapped-1",
+          tipoDte: "33",
+          folio: 43,
+          trackId: null,
+          siiStatus: "DOK",
+          pdf: { letterAvailable: false, thermalAvailable: false },
+          printPayload: {
+            ready: true,
+            signedXmlBase64,
+            pdf: { letterAvailable: false, thermalAvailable: false },
+            timbre: {
+              tedXml: "<TED version=\"1.0\"></TED>",
+              pdf417PngBase64: "c3ludGhldGlj",
+            },
+          },
+        },
+      },
+      statusCode: 202,
+    }, 202));
+    vi.stubGlobal("fetch", fetchMock);
+    const gateway = new IntellyDteHttpGateway({ baseUrl: "https://dte.example", tenantApiKey: "ik_tenant", systemApiKey: "isk_system", tenantRut: "76123456-7", emissionMode: "async", timeoutMs: 1000 });
+
+    const result = await gateway.issueInvoice({ idempotencyKey: "invoice:order-2", correlationId: "corr-2", orderNumber: "OP-2", total: "1190", recipientTaxId: "76123456-7", payload: { receptor: { rut: "76123456-7", razonSocial: "Cliente" }, items: [], montoNeto: 1000, montoIva: 190, montoTotal: 1190 } });
+
+    expect(result).toMatchObject({ kind: "issued", providerDocumentId: "dte-wrapped-1", folio: "43", siiStatus: "DOK", signedXmlBase64 });
+  });
+
   it("maps authorization, conflict, provider, timeout, and malformed responses safely", async () => {
     const gateway = new IntellyDteHttpGateway({ baseUrl: "https://dte.example", tenantApiKey: "ik_tenant", systemApiKey: "isk_system", tenantRut: "76123456-7", emissionMode: "async", timeoutMs: 1000 });
     const command = { idempotencyKey: "invoice:order-1", correlationId: "corr-1", orderNumber: "OP-1", total: "1190", recipientTaxId: "76123456-7", payload: { receptor: { rut: "76123456-7", razonSocial: "Cliente" }, items: [], montoTotal: 1190 } };

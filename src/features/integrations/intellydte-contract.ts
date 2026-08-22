@@ -31,7 +31,9 @@ export type IntellyDteFacturaPayload = {
 };
 
 export type ProviderPrintPayload = {
+  ready?: boolean;
   signedXmlBase64?: string;
+  pdf?: { letterAvailable?: boolean; thermalAvailable?: boolean };
   timbre?: { tedXml?: string; pdf417PngBase64?: string; pdf417PngDataUrl?: string };
 };
 
@@ -51,8 +53,10 @@ export type ProviderError = { code: string; message: string };
 
 export function providerData(payload: unknown): NormalizedProviderData {
   const root = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
-  const value = root.data && typeof root.data === "object" ? root.data as Record<string, unknown> : root;
+  const body = root.body && typeof root.body === "object" ? root.body as Record<string, unknown> : root;
+  const value = body.data && typeof body.data === "object" ? body.data as Record<string, unknown> : body;
   const printPayload = value.printPayload && typeof value.printPayload === "object" ? value.printPayload as Record<string, unknown> : undefined;
+  const printPdf = printPayload?.pdf && typeof printPayload.pdf === "object" ? printPayload.pdf as Record<string, unknown> : undefined;
   const timbre = printPayload?.timbre && typeof printPayload.timbre === "object" ? printPayload.timbre as Record<string, unknown> : undefined;
   return {
     dteRecordId: stringValue(value.dteRecordId ?? value.dte_record_id),
@@ -63,7 +67,12 @@ export function providerData(payload: unknown): NormalizedProviderData {
     siiGlosa: value.siiGlosa === undefined && value.sii_glosa === undefined ? undefined : stringValue(value.siiGlosa ?? value.sii_glosa) ?? null,
     issuedAt: stringValue(value.issuedAt ?? value.issued_at),
     printPayload: printPayload ? {
+      ready: typeof printPayload.ready === "boolean" ? printPayload.ready : undefined,
       signedXmlBase64: stringValue(printPayload.signedXmlBase64 ?? printPayload.signed_xml_base64),
+      pdf: printPdf ? {
+        letterAvailable: typeof printPdf.letterAvailable === "boolean" ? printPdf.letterAvailable : undefined,
+        thermalAvailable: typeof printPdf.thermalAvailable === "boolean" ? printPdf.thermalAvailable : undefined,
+      } : undefined,
       timbre: timbre ? { tedXml: stringValue(timbre.tedXml ?? timbre.ted_xml), pdf417PngBase64: stringValue(timbre.pdf417PngBase64), pdf417PngDataUrl: stringValue(timbre.pdf417PngDataUrl) } : undefined,
     } : undefined,
   };
