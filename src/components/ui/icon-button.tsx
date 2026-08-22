@@ -8,6 +8,7 @@ type IconButtonBaseProps = {
   variant?: "primary" | "secondary" | "danger";
   pending?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   className?: string;
 };
 
@@ -20,7 +21,7 @@ function buttonClass(variant: IconButtonBaseProps["variant"], className: string 
   return `icon-button btn-${variant ?? "secondary"} ${className ?? ""}`.trim();
 }
 
-export function IconButton({ label, icon, href, variant = "secondary", pending = false, disabled = false, className, ...props }: IconButtonProps) {
+export function IconButton({ label, icon, href, variant = "secondary", pending = false, disabled = false, disabledReason, className, ...props }: IconButtonProps) {
   if (!label.trim()) throw new Error("IconButton requires a non-empty label.");
   const unavailable = pending || disabled;
   const content = pending ? <LoaderCircle aria-hidden="true" className="animate-spin" size={18} /> : icon;
@@ -29,13 +30,18 @@ export function IconButton({ label, icon, href, variant = "secondary", pending =
     "aria-label": label,
     "aria-busy": pending || undefined,
     "aria-disabled": unavailable || undefined,
-    "data-tooltip": label,
-    title: label,
+    "data-tooltip": unavailable && disabledReason ? disabledReason : label,
+    title: unavailable && disabledReason ? disabledReason : label,
     className: buttonClass(variant, className),
   };
 
   if (href !== undefined) {
     const anchorProps = props as AnchorHTMLAttributes<HTMLAnchorElement> & Pick<LinkProps, "replace" | "scroll" | "prefetch">;
+    if (unavailable) {
+      return <span role="link" {...shared} tabIndex={-1}>
+        {content}<span aria-hidden="true" className="icon-button-tooltip">{label}</span>{accessibleName}
+      </span>;
+    }
     return <Link href={href} {...anchorProps} {...shared} tabIndex={unavailable ? -1 : anchorProps.tabIndex}>
       {content}<span aria-hidden="true" className="icon-button-tooltip">{label}</span>{accessibleName}
     </Link>;

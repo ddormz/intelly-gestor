@@ -2,12 +2,16 @@
 
 import { useState } from "react";
 import {
+  BadgeCheck,
+  CircleX,
+  Clock3,
   Download,
   FileCheck,
   FileDown,
   FileMinus,
   FileText,
   Mail,
+  LoaderCircle,
   PlusCircle,
   Receipt,
   ReceiptText,
@@ -37,7 +41,6 @@ import {
   syncFoliosAction,
 } from "@/features/billing/actions";
 import { formatClpAmount } from "@/lib/money";
-import { getStatusLabel } from "@/lib/presentation";
 import type { PageQuery } from "@/lib/list-query";
 import type { FolioStatusItem } from "@/features/integrations/intellydte-contract";
 
@@ -61,6 +64,17 @@ type ReadyOrder = {
   clientName: string;
   total: string;
 };
+
+function FiscalStatusBadge({ status }: { status: string }) {
+  const presentation = status === "issued"
+    ? { label: "Aceptada", className: "status-success", icon: <BadgeCheck aria-hidden="true" size={14} /> }
+    : status === "processing"
+      ? { label: "Procesando", className: "status-info", icon: <LoaderCircle aria-hidden="true" className="animate-spin" size={14} /> }
+      : status === "rejected"
+        ? { label: "Rechazada", className: "status-danger", icon: <CircleX aria-hidden="true" size={14} /> }
+        : { label: "Pendiente", className: "status-warning", icon: <Clock3 aria-hidden="true" size={14} /> };
+  return <span className={`status-badge inline-flex items-center gap-1.5 ${presentation.className}`} aria-label={`Estado: ${presentation.label}`}>{presentation.icon}{presentation.label}</span>;
+}
 
 function DirectSyncFoliosButton({ onResult }: { onResult: (res: { ok: boolean; message: string }) => void }) {
   const [pending, setPending] = useState(false);
@@ -383,7 +397,7 @@ export function BillingManager({
           { value: "all", label: "Todas" },
           { value: "pending", label: "Pendientes" },
           { value: "processing", label: "Procesando" },
-          { value: "issued", label: "Emitidas" },
+          { value: "issued", label: "Aceptadas" },
           { value: "rejected", label: "Rechazadas" },
         ]}
       />
@@ -439,7 +453,7 @@ export function BillingManager({
                     {item.clientName}
                   </td>
                   <td data-label="Estado">
-                    <Badge status={item.status}>{getStatusLabel(item.status)}</Badge>
+                    <FiscalStatusBadge status={item.status} />
                     {item.siiGlosa ? (
                       <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">{item.siiGlosa}</p>
                     ) : item.siiStatus ? (
@@ -452,10 +466,10 @@ export function BillingManager({
                   </td>
                   <td data-label="Acciones">
                     <div className="flex flex-wrap justify-end gap-2">
-                      {item.status !== "issued" || !item.hasPdf ? (
+                      {item.status === "pending" || item.status === "processing" || item.status === "issued" && (!item.hasPdf || !item.hasXml) ? (
                         <ActionModal
                           iconOnly
-                          triggerLabel="Actualizar estado fiscal"
+                          triggerLabel={item.status === "issued" ? "Reintentar archivos tributarios" : "Actualizar estado fiscal"}
                           triggerIcon={<RefreshCw size={17} />}
                           title="Actualizar estado fiscal"
                           description="Se consultará IntellyDTE sin volver a emitir la factura."
@@ -466,41 +480,43 @@ export function BillingManager({
                         </ActionModal>
                       ) : null}
                       {item.status === "issued" && item.hasPdf ? (
-                        <>
-                          <ActionModal
-                            iconOnly
-                            triggerLabel="Enviar factura por correo"
-                            triggerIcon={<Mail size={17} />}
-                            title={`Enviar Factura F${item.folio || ""} por Correo`}
-                            description="Se enviará la factura con el PDF tributario y el XML firmado adjuntos."
-                            submitLabel="Enviar factura"
-                            pendingLabel="Enviando correo…"
-                            action={sendInvoiceEmailAction}
-                          >
-                            {(state) => (
-                              <>
-                                <input type="hidden" name="invoiceId" value={item.id} />
-                                <EmailRecipientFields
-                                  registeredEmail={item.clientEmail}
-                                  errors={state.fieldErrors}
-                                />
-                              </>
-                            )}
-                          </ActionModal>
-                          <IconButton
-                            href={`/api/invoices/${item.id}/pdf`}
-                            label="Descargar PDF fiscal"
-                            icon={<FileDown size={17} />}
-                          />
-                        </>
-                      ) : null}
-                      {item.status === "issued" && item.hasXml ? (
-                        <IconButton
-                          href={`/api/invoices/${item.id}/xml`}
-                          label="Descargar XML firmado"
-                          icon={<FileText size={17} />}
-                        />
-                      ) : null}
+                        <ActionModal
+                          iconOnly
+                          triggerLabel="Enviar factura por correo"
+                          triggerIcon={<Mail size={17} />}
+                          title={`Enviar Factura F${item.folio || ""} por Correo`}
+                          description="Se enviará la factura con el PDF tributario y el XML firmado adjuntos."
+                          submitLabel="Enviar factura"
+                          pendingLabel="Enviando correo…"
+                          action={sendInvoiceEmailAction}
+                        >
+                          {(state) => (
+                            <>
+                              <input type="hidden" name="invoiceId" value={item.id} />
+                              <EmailRecipientFields
+                                registeredEmail={item.clientEmail}
+                                errors={state.fieldErrors}
+                              />
+                            </>
+                          )}
+                        </ActionModal>
+                      ) : (
+                        <IconButton disabled disabledReason="Genera el PDF tributario antes de enviarlo." label="Enviar factura por correo" icon={<Mail size={17} />} />
+                      )}
+                      <IconButton
+                        href={`/api/invoices/${item.id}/pdf`}
+                        disabled={!item.hasPdf}
+                        disabledReason="El PDF tributario aún se está generando."
+                        label="Descargar PDF fiscal"
+                        icon={<FileDown size={17} />}
+                      />
+                      <IconButton
+                        href={`/api/invoices/${item.id}/xml`}
+                        disabled={!item.hasXml}
+                        disabledReason="El XML firmado aún no está disponible."
+                        label="Descargar XML firmado"
+                        icon={<FileText size={17} />}
+                      />
                     </div>
                   </td>
                 </tr>
