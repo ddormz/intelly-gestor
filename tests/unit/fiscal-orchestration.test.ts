@@ -52,6 +52,28 @@ describe("fiscal emission orchestration", () => {
     expect(gateway.getInvoiceStatus).not.toHaveBeenCalled();
   });
 
+  it("keeps an SII-accepted invoice issued when the signed XML is still pending", async () => {
+    const db = configuredDb([], []);
+    const gateway = {
+      issueInvoice: vi.fn(async () => ({
+        kind: "issued" as const,
+        providerDocumentId: "dte-accepted-without-xml",
+        folio: "43",
+        issuedAt: "2026-08-15T12:00:00.000Z",
+        siiStatus: "DOK",
+        siiGlosa: "Documento aceptado",
+      })),
+      getInvoiceStatus: vi.fn(),
+      health: vi.fn(),
+      lookupRut: vi.fn(),
+    } as unknown as IntellyDteGateway;
+
+    const result = await issueInvoice("order-1", "user-1", gateway);
+
+    expect(result).toMatchObject({ kind: "issued", providerDocumentId: "dte-accepted-without-xml", folio: "43", siiStatus: "DOK" });
+    expect(db.transaction).toHaveBeenCalledOnce();
+  });
+
   it("reconciles an uncertain provider identifier before any second create call", async () => {
     configuredDb([{ id: "invoice-1", paymentOrderId: "order-1", status: "pending", providerDocumentId: "dte-1", folio: null, tenantRut: "76123456-0", trackId: null, siiStatus: null, siiGlosa: null, signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null, evidenceStatus: "pending", evidenceError: null, issuedAt: null }], [{ attemptNumber: 1 }]);
     const issue = vi.fn();

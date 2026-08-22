@@ -203,9 +203,13 @@ async function applyInvoiceResult(db: BillingDb, invoice: typeof invoices["$infe
       });
       return result;
     }
-    await db.update(invoices).set({ status: "pending", providerDocumentId: result.providerDocumentId, folio: result.folio, trackId: result.trackId ?? invoice.trackId, siiStatus: result.siiStatus ?? invoice.siiStatus, siiGlosa: result.siiGlosa ?? invoice.siiGlosa, evidenceStatus: "pending", evidenceError: evidence.error?.message.slice(0, 300) ?? "Falta XML firmado.", lastErrorCode: "SIGNED_XML_PENDING", lastErrorMessage: "El proveedor tiene el documento, pero falta XML firmado.", updatedAt: now }).where(eq(invoices.id, invoice.id));
-    await db.update(integrationAttempts).set({ status: "pending", completedAt: now, providerCode: result.providerDocumentId, providerDocumentId: result.providerDocumentId, responseBody: providerResponseBody(result), safeMessage: "Documento del proveedor pendiente de evidencia XML." }).where(eq(integrationAttempts.id, attemptId));
-    return { kind: "pending", providerDocumentId: result.providerDocumentId, folio: result.folio, providerCode: "SIGNED_XML_PENDING", providerBody: result.providerBody };
+    await db.transaction(async (tx) => {
+      await tx.update(invoices).set({ status: "issued", providerDocumentId: result.providerDocumentId, folio: result.folio, trackId: result.trackId ?? invoice.trackId, siiStatus: result.siiStatus ?? invoice.siiStatus, siiGlosa: result.siiGlosa ?? invoice.siiGlosa, evidenceStatus: "pending", evidenceError: evidence.error?.message.slice(0, 300) ?? "Falta XML firmado.", issuedAt: invoice.issuedAt ?? new Date(result.issuedAt), lastErrorCode: "SIGNED_XML_PENDING", lastErrorMessage: "La factura fue aceptada; falta almacenar el XML firmado.", updatedAt: now }).where(eq(invoices.id, invoice.id));
+      await tx.update(paymentOrders).set({ status: "invoiced", invoicedAt: new Date(), updatedAt: now }).where(and(eq(paymentOrders.id, orderId), eq(paymentOrders.status, "paid")));
+      await tx.update(integrationAttempts).set({ status: "issued", completedAt: now, providerCode: result.providerDocumentId, providerDocumentId: result.providerDocumentId, responseBody: providerResponseBody(result), safeMessage: "Factura aceptada; evidencia tributaria pendiente." }).where(eq(integrationAttempts.id, attemptId));
+      await tx.insert(auditEvents).values(buildAuditEvent({ actorUserId: userId, actorType: "user", action: "invoice.issued", entityType: "invoice", entityId: invoice.id, metadata: { providerDocumentId: result.providerDocumentId, folio: result.folio, evidenceStatus: "pending" } }));
+    });
+    return result;
   }
   const status = result.kind === "rejected" ? "rejected" : "pending";
   await db.transaction(async (tx) => {
@@ -281,12 +285,16 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
       throw error;
     }
   }
-  if (!dteRecordId || !tenantRut) {
+  if (!dteRecordId) {
     await db.update(intellyDteWebhookEvents).set({ processedAt: new Date(), payload: redactMetadata(body) }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
     return { accepted: true, duplicate: false, eventId, status: "acknowledged_without_target" };
   }
-  const [invoice] = await db.select().from(invoices).where(and(eq(invoices.providerDocumentId, dteRecordId), eq(invoices.tenantRut, tenantRut))).limit(1).execute();
+  const [invoice] = await db.select().from(invoices).where(eq(invoices.providerDocumentId, dteRecordId)).limit(1).execute();
   if (!invoice) {
+    await db.update(intellyDteWebhookEvents).set({ processedAt: new Date() }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
+    return { accepted: true, duplicate: false, eventId, status: "acknowledged_without_target" };
+  }
+  if (tenantRut && invoice.tenantRut && normalizeRut(tenantRut) !== normalizeRut(invoice.tenantRut)) {
     await db.update(intellyDteWebhookEvents).set({ processedAt: new Date() }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
     return { accepted: true, duplicate: false, eventId, status: "acknowledged_without_target" };
   }
@@ -303,13 +311,15 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
     const incomingSiiStatus = typeof data.siiStatus === "string" ? data.siiStatus : typeof data.sii_status === "string" ? data.sii_status : undefined;
     const incomingSiiGlosa = typeof data.siiGlosa === "string" ? data.siiGlosa : typeof data.sii_glosa === "string" ? data.sii_glosa : undefined;
     const terminal = current.status === "issued" || current.status === "rejected";
-    const canIssue = event === "dte.accepted" && Boolean(current.signedXmlEvidenceId || materialized?.signed);
-    const nextStatus = terminal ? current.status : event === "dte.rejected" ? "rejected" : canIssue ? "issued" : event === "dte.accepted" ? "pending" : event === "dte.review_required" ? "processing" : "processing";
-    const evidenceStatus = canIssue ? materialized?.reconstructed ? "complete" : current.evidenceStatus === "complete" ? "complete" : "pending" : current.evidenceStatus;
-    await tx.update(invoices).set({ status: nextStatus, tenantRut, providerDocumentId: dteRecordId, folio: dataResultValue.folio ?? current.folio, trackId: incomingTrackId ?? current.trackId, siiStatus: incomingSiiStatus ?? current.siiStatus, siiGlosa: incomingSiiGlosa ?? current.siiGlosa, signedXmlEvidenceId: materialized?.signed?.id ?? current.signedXmlEvidenceId, reconstructedPdfEvidenceId: materialized?.reconstructed?.id ?? current.reconstructedPdfEvidenceId, evidenceStatus, evidenceError: materialized?.error?.message.slice(0, 300) ?? current.evidenceError, rejectedAt: nextStatus === "rejected" ? new Date() : current.rejectedAt, issuedAt: nextStatus === "issued" ? current.issuedAt ?? new Date() : current.issuedAt, lastErrorCode: materialized?.error ? "PDF_RECONSTRUCTION_RETRYABLE" : nextStatus === "rejected" ? "SII_REJECTED" : current.lastErrorCode, lastErrorMessage: materialized?.error?.message.slice(0, 300) ?? nextStatus === "rejected" ? incomingSiiGlosa ?? "Documento rechazado por el proveedor." : current.lastErrorMessage, updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
+    const accepted = event === "dte.accepted";
+    const nextStatus = terminal ? current.status : event === "dte.rejected" ? "rejected" : accepted ? "issued" : event === "dte.enqueued" ? "pending" : "processing";
+    const evidenceStatus = accepted ? materialized?.reconstructed ? "complete" : current.evidenceStatus === "complete" ? "complete" : "pending" : current.evidenceStatus;
+    const effectiveTenantRut = current.tenantRut ?? tenantRut;
+    const evidencePending = accepted && evidenceStatus !== "complete";
+    await tx.update(invoices).set({ status: nextStatus, tenantRut: effectiveTenantRut, providerDocumentId: dteRecordId, folio: dataResultValue.folio ?? current.folio, trackId: incomingTrackId ?? current.trackId, siiStatus: incomingSiiStatus ?? current.siiStatus, siiGlosa: incomingSiiGlosa ?? current.siiGlosa, signedXmlEvidenceId: materialized?.signed?.id ?? current.signedXmlEvidenceId, reconstructedPdfEvidenceId: materialized?.reconstructed?.id ?? current.reconstructedPdfEvidenceId, evidenceStatus, evidenceError: materialized?.error?.message.slice(0, 300) ?? (evidencePending ? "La factura fue aceptada; falta almacenar su evidencia tributaria." : current.evidenceError), rejectedAt: nextStatus === "rejected" ? new Date() : current.rejectedAt, issuedAt: nextStatus === "issued" ? current.issuedAt ?? new Date() : current.issuedAt, lastErrorCode: materialized?.error ? "PDF_RECONSTRUCTION_RETRYABLE" : evidencePending ? "SIGNED_XML_PENDING" : nextStatus === "rejected" ? "SII_REJECTED" : current.lastErrorCode, lastErrorMessage: materialized?.error?.message.slice(0, 300) ?? (evidencePending ? "La factura fue aceptada; evidencia tributaria pendiente." : nextStatus === "rejected" ? incomingSiiGlosa ?? "Documento rechazado por el proveedor." : current.lastErrorMessage), updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
     if (nextStatus === "issued") await tx.update(paymentOrders).set({ status: "invoiced", invoicedAt: new Date(), updatedAt: new Date() }).where(and(eq(paymentOrders.id, current.paymentOrderId), eq(paymentOrders.status, "paid")));
     await tx.update(intellyDteWebhookEvents).set({ processedAt: new Date() }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
-    await tx.insert(auditEvents).values(buildAuditEvent({ actorType: "system", action: "invoice.webhook_updated", entityType: "invoice", entityId: invoice.id, metadata: { eventId, event, dteRecordId, tenantRut, status: nextStatus, evidenceStatus } }));
+    await tx.insert(auditEvents).values(buildAuditEvent({ actorType: "system", action: "invoice.webhook_updated", entityType: "invoice", entityId: invoice.id, metadata: { eventId, event, dteRecordId, tenantRut: effectiveTenantRut, status: nextStatus, evidenceStatus } }));
   });
   return { accepted: true, duplicate: false, eventId, status: "processed" };
 }
