@@ -25,9 +25,9 @@ describe("billing fiscal evidence UI", () => {
 
     expect(html).toContain("Aceptada");
     expect(html).toContain("lucide-badge-check");
-    expect(html).toContain('aria-label="Descargar PDF fiscal" aria-disabled="true"');
-    expect(html).toContain('aria-label="Descargar XML firmado" aria-disabled="true"');
-    expect(html).toContain('aria-label="Enviar factura por correo" aria-disabled="true"');
+    expect(html).toMatch(/aria-label="Descargar PDF fiscal"[^>]+aria-disabled="true"/);
+    expect(html).toMatch(/aria-label="Descargar XML firmado"[^>]+aria-disabled="true"/);
+    expect(html).toMatch(/aria-label="Enviar factura por correo"[^>]+aria-disabled="true"/);
     expect(html).toContain('title="El PDF tributario aún se está generando."');
     expect(html).toContain('title="El XML firmado aún no está disponible."');
     expect(html).toContain("Reintentar archivos tributarios");
@@ -40,9 +40,11 @@ describe("billing fiscal evidence UI", () => {
   });
 
   it("does not render a navigable href for a disabled link action", () => {
-    const html = renderToStaticMarkup(createElement(IconButton, { href: "/private-file", disabled: true, label: "Archivo pendiente", icon: createElement("span") }));
+    const html = renderToStaticMarkup(createElement(IconButton, { href: "/private-file", disabled: true, disabledReason: "El archivo aún se está generando.", label: "Archivo pendiente", icon: createElement("span") }));
 
     expect(html).toContain('aria-disabled="true"');
+    expect(html).toContain('aria-description="El archivo aún se está generando."');
+    expect(html).toContain('tabindex="0"');
     expect(html).not.toContain('href="/private-file"');
   });
 });

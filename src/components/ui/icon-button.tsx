@@ -28,12 +28,19 @@ export function IconButton({ label, icon, href, variant = "secondary", pending =
   const accessibleName = <span className="sr-only">{pending ? `${label}, procesando` : label}</span>;
   const shared = {
     "aria-label": label,
+    "aria-description": unavailable ? disabledReason : undefined,
     "aria-busy": pending || undefined,
     "aria-disabled": unavailable || undefined,
     "data-tooltip": unavailable && disabledReason ? disabledReason : label,
     title: unavailable && disabledReason ? disabledReason : label,
     className: buttonClass(variant, className),
   };
+
+  if (disabled) {
+    return <span role={href !== undefined ? "link" : "button"} {...shared} tabIndex={0}>
+      {content}<span aria-hidden="true" className="icon-button-tooltip">{label}</span>{accessibleName}
+    </span>;
+  }
 
   if (href !== undefined) {
     const anchorProps = props as AnchorHTMLAttributes<HTMLAnchorElement> & Pick<LinkProps, "replace" | "scroll" | "prefetch">;

@@ -20,7 +20,7 @@ export async function issueInvoiceAction(_: ActionState, formData: FormData): Pr
     const user = await requireUser();
     const result = await issueInvoice(String(formData.get("orderId")), user.userId);
     revalidatePath("/facturacion"); revalidatePath("/");
-    return { status: "success", message: result.kind === "issued" ? "Factura emitida y PDF fiscal reconstruido." : "Solicitud de facturación registrada." };
+    return { status: "success", message: result.kind === "issued" ? "Factura aceptada por el SII." : "Solicitud de facturación registrada." };
   } catch (error) {
     if (error instanceof AppError) return { status: "error", message: error.message };
     return { status: "error", message: safeError(error).message };

@@ -294,7 +294,7 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
     await db.update(intellyDteWebhookEvents).set({ processedAt: new Date() }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
     return { accepted: true, duplicate: false, eventId, status: "acknowledged_without_target" };
   }
-  if (tenantRut && invoice.tenantRut && normalizeRut(tenantRut) !== normalizeRut(invoice.tenantRut)) {
+  if (tenantRut && (!invoice.tenantRut || normalizeRut(tenantRut) !== normalizeRut(invoice.tenantRut))) {
     await db.update(intellyDteWebhookEvents).set({ processedAt: new Date() }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
     return { accepted: true, duplicate: false, eventId, status: "acknowledged_without_target" };
   }
@@ -314,7 +314,7 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
     const accepted = event === "dte.accepted";
     const nextStatus = terminal ? current.status : event === "dte.rejected" ? "rejected" : accepted ? "issued" : event === "dte.enqueued" ? "pending" : "processing";
     const evidenceStatus = accepted ? materialized?.reconstructed ? "complete" : current.evidenceStatus === "complete" ? "complete" : "pending" : current.evidenceStatus;
-    const effectiveTenantRut = current.tenantRut ?? tenantRut;
+    const effectiveTenantRut = current.tenantRut;
     const evidencePending = accepted && evidenceStatus !== "complete";
     await tx.update(invoices).set({ status: nextStatus, tenantRut: effectiveTenantRut, providerDocumentId: dteRecordId, folio: dataResultValue.folio ?? current.folio, trackId: incomingTrackId ?? current.trackId, siiStatus: incomingSiiStatus ?? current.siiStatus, siiGlosa: incomingSiiGlosa ?? current.siiGlosa, signedXmlEvidenceId: materialized?.signed?.id ?? current.signedXmlEvidenceId, reconstructedPdfEvidenceId: materialized?.reconstructed?.id ?? current.reconstructedPdfEvidenceId, evidenceStatus, evidenceError: materialized?.error?.message.slice(0, 300) ?? (evidencePending ? "La factura fue aceptada; falta almacenar su evidencia tributaria." : current.evidenceError), rejectedAt: nextStatus === "rejected" ? new Date() : current.rejectedAt, issuedAt: nextStatus === "issued" ? current.issuedAt ?? new Date() : current.issuedAt, lastErrorCode: materialized?.error ? "PDF_RECONSTRUCTION_RETRYABLE" : evidencePending ? "SIGNED_XML_PENDING" : nextStatus === "rejected" ? "SII_REJECTED" : current.lastErrorCode, lastErrorMessage: materialized?.error?.message.slice(0, 300) ?? (evidencePending ? "La factura fue aceptada; evidencia tributaria pendiente." : nextStatus === "rejected" ? incomingSiiGlosa ?? "Documento rechazado por el proveedor." : current.lastErrorMessage), updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
     if (nextStatus === "issued") await tx.update(paymentOrders).set({ status: "invoiced", invoicedAt: new Date(), updatedAt: new Date() }).where(and(eq(paymentOrders.id, current.paymentOrderId), eq(paymentOrders.status, "paid")));
@@ -334,6 +334,18 @@ export async function refreshInvoiceStatus(invoiceId: string, userId: string, ga
   const db = getDb();
   const [invoice] = await db.select().from(invoices).where(eq(invoices.id, invoiceId)).limit(1).execute();
   if (!invoice?.providerDocumentId) throw new AppError("INVOICE_PROVIDER_ID_MISSING", "La factura aún no tiene un identificador de proveedor.", 409);
+  if (invoice.status === "issued" && invoice.signedXmlEvidenceId && !invoice.reconstructedPdfEvidenceId) {
+    try {
+      const reconstructed = await retryLocalPdf(invoice.id);
+      await db.update(invoices).set({ reconstructedPdfEvidenceId: reconstructed.id, evidenceStatus: "complete", evidenceError: null, lastErrorCode: null, lastErrorMessage: null, updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
+      await db.insert(auditEvents).values(buildAuditEvent({ actorUserId: userId, actorType: "user", action: "invoice.pdf_reconstructed", entityType: "invoice", entityId: invoice.id, metadata: { providerDocumentId: invoice.providerDocumentId, folio: invoice.folio } }));
+      return { kind: "issued", providerDocumentId: invoice.providerDocumentId, folio: invoice.folio ?? "", issuedAt: invoice.issuedAt?.toISOString() ?? new Date().toISOString(), trackId: invoice.trackId, siiStatus: invoice.siiStatus, siiGlosa: invoice.siiGlosa };
+    } catch (error) {
+      const safe = error instanceof AppError ? error : new AppError("PDF_RECONSTRUCTION_FAILED", "No se pudo reconstruir el PDF fiscal.", 500);
+      await db.update(invoices).set({ evidenceStatus: "failed", evidenceError: safe.message.slice(0, 300), lastErrorCode: safe.code, lastErrorMessage: safe.message.slice(0, 300), updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
+      throw safe;
+    }
+  }
   const payload = await payloadForInvoice(db, invoice.paymentOrderId);
   const previousAttempt = await latestAttempt(db, invoice.id);
   const attempt = await createAttempt(db, invoice.id, `invoice:${invoice.paymentOrderId}`, requestHash(payload), payload, (previousAttempt?.attemptNumber ?? 0) + 1, "reconcile_invoice_status");

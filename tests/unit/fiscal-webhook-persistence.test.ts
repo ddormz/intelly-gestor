@@ -100,4 +100,27 @@ describe("fiscal webhook persistence", () => {
     expect(result.status).toBe("acknowledged_without_target");
     expect(invoiceUpdates).toHaveLength(0);
   });
+
+  it("does not adopt a webhook tenant when the invoice has no stored tenant", async () => {
+    const invoice = { id: "invoice-1", paymentOrderId: "order-1", status: "pending", providerDocumentId: "dte-1", tenantRut: null };
+    const selects = [chain([]), chain([invoice])];
+    const invoiceUpdates: Array<Record<string, unknown>> = [];
+    const db = {
+      select: vi.fn(() => selects.shift() ?? chain([])),
+      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      update: vi.fn(() => ({ set: vi.fn((value: Record<string, unknown>) => {
+        if (value.status) invoiceUpdates.push(value);
+        return { where: vi.fn(async () => undefined) };
+      }) })),
+      transaction: vi.fn(async (callback: (tx: typeof db) => unknown) => callback(db)),
+    };
+    vi.mocked(getDb).mockReturnValue(db as never);
+    const body = JSON.stringify({ id: "evt-missing-tenant-1", type: "dte.accepted", data: { dteRecordId: "dte-1", tenantRut: "76123456-7", siiStatus: "DOK" } });
+    const signature = `sha256=${createHmac("sha256", "webhook-secret").update(body).digest("hex")}`;
+
+    const result = await handleIntellyDteWebhook(body, signature);
+
+    expect(result.status).toBe("acknowledged_without_target");
+    expect(invoiceUpdates).toHaveLength(0);
+  });
 });
