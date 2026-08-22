@@ -1,7 +1,7 @@
 # Diseño: estado fiscal por webhook y representación tributaria local
 
 **Fecha:** 2026-08-22
-**Estado:** propuesto para revisión
+**Estado:** aprobado para planificación
 
 ## Contexto comprobado
 
