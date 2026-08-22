@@ -60,7 +60,7 @@ describe("fiscal webhook persistence", () => {
     const db = {
       select: vi.fn(() => selects.shift() ?? chain([])),
       insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
-      update: vi.fn((table: unknown) => ({
+      update: vi.fn((_table: unknown) => ({
         set: vi.fn((value: Record<string, unknown>) => {
           if (value.status) invoiceUpdates.push(value);
           return { where: vi.fn(async () => undefined) };
