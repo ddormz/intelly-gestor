@@ -83,6 +83,23 @@ describe("invoice evidence orchestration", () => {
     expect(mocks.storeReconstructedPdf).toHaveBeenCalledWith("invoice-101", expect.objectContaining({ rendererVersion: "fiscal-pdf-v2", dteType: "33", folio: 22 }), expect.any(Uint8Array));
   });
 
+  it("generates the PDF from the provider DTE even when the provider normalizes order fields", async () => {
+    const normalizedPayload = {
+      ...payload,
+      receptor: { ...payload.receptor, razonSocial: "CLIENTE SPA (NORMALIZADO)" },
+    };
+
+    const result = await materializeInvoiceEvidence({
+      invoiceId: "invoice-101",
+      result: issuedResult,
+      payload: normalizedPayload,
+      expectedIssuerRut: "76123456-7",
+    });
+
+    expect(result).toMatchObject({ status: "complete", signedXmlEvidenceId: "xml-evidence-101", reconstructedPdfEvidenceId: "pdf-evidence-101" });
+    expect(mocks.renderFiscalPdf).toHaveBeenCalledWith(parsedDocument);
+  });
+
   it("keeps the XML id and reports a retryable PDF failure", async () => {
     mocks.renderFiscalPdf.mockRejectedValueOnce(new Error("renderer failed"));
 

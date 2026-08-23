@@ -30,11 +30,18 @@ describe("billing fiscal evidence UI", () => {
     expect(html).toMatch(/aria-label="Descargar PDF fiscal"[^>]+aria-disabled="true"/);
     expect(html).toMatch(/aria-label="Descargar XML firmado"[^>]+aria-disabled="true"/);
     expect(html).toMatch(/aria-label="Enviar factura por correo"[^>]+aria-disabled="true"/);
-    expect(html).toContain('title="El PDF tributario aún se está generando."');
     expect(html).toContain('title="El XML firmado aún no está disponible."');
     expect(html).toContain("Reintentar archivos tributarios");
     expect(html).toContain("Regenerar PDF tributario");
     expect(renderInvoice("issued", true, true)).toContain("Regenerar PDF tributario");
+  });
+
+  it("keeps the PDF action available when XML exists so generation is immediate", () => {
+    const html = renderInvoice("issued", false, true);
+
+    expect(html).toContain('href="/api/invoices/invoice-1/pdf"');
+    expect(html).not.toMatch(/aria-label="Descargar PDF fiscal"[^>]+aria-disabled="true"/);
+    expect(html).not.toContain("El PDF tributario aún se está generando.");
   });
 
   it("uses distinct icons for pending, processing, and rejected states", () => {

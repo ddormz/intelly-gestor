@@ -1,5 +1,7 @@
 import { requireUser } from "@/features/auth/session";
+import { regenerateInvoicePdf } from "@/features/billing/emission";
 import { getFiscalEvidenceArtifact } from "@/features/billing/evidence";
+import { safeError } from "@/lib/errors";
 
 export const runtime = "nodejs";
 
@@ -8,9 +10,18 @@ function safeFolio(value: string): string {
 }
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  const user = await requireUser();
   const { id } = await params;
-  const artifact = await getFiscalEvidenceArtifact(id, "reconstructed_pdf");
+  let artifact = await getFiscalEvidenceArtifact(id, "reconstructed_pdf");
+  if (!artifact?.bytes) {
+    try {
+      await regenerateInvoicePdf(id, user.userId);
+      artifact = await getFiscalEvidenceArtifact(id, "reconstructed_pdf");
+    } catch (error) {
+      const safe = safeError(error);
+      return new Response(safe.message, { status: 409, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    }
+  }
   if (!artifact?.bytes) return new Response("Evidencia PDF no encontrada.", { status: 404 });
   const body = new ArrayBuffer(artifact.bytes.byteLength);
   new Uint8Array(body).set(artifact.bytes);

@@ -64,6 +64,22 @@ export function assertProviderMatchesOrder(
   });
 }
 
+function assertProviderDocumentIdentity(
+  result: Extract<InvoiceResult, { kind: "issued" }>,
+  document: ParsedDteDocument,
+  expectedIssuerRut?: string | null,
+): void {
+  if (document.type !== "33" || result.tipoDte && result.tipoDte !== "33") {
+    throw new AppError("SIGNED_XML_DTE_TYPE_MISMATCH", "El XML firmado no corresponde a una Factura 33.", 502);
+  }
+  if (String(document.folio) !== String(result.folio)) {
+    throw new AppError("SIGNED_XML_FOLIO_MISMATCH", "El folio del XML firmado no coincide con IntellyDTE.", 502);
+  }
+  if (expectedIssuerRut && normalizeRut(document.issuer.rut) !== normalizeRut(expectedIssuerRut)) {
+    throw new AppError("SIGNED_XML_ISSUER_MISMATCH", "El emisor del XML firmado no coincide con la configuración fiscal.", 502);
+  }
+}
+
 function failedResult(error: unknown, fallbackCode: string, fallbackMessage: string, signedXmlEvidenceId: string | null = null): EvidenceMaterializationResult {
   return {
     status: "failed",
@@ -90,7 +106,11 @@ export async function materializeInvoiceEvidence(input: MaterializeInvoiceEviden
   try {
     bytes = decodeProviderXml(input.result.signedXmlBase64);
     document = parseSignedDteXmlBytes(bytes);
-    assertProviderMatchesOrder(input.result, document, input.payload, input.expectedIssuerRut);
+    // The signed DTE is the provider's fiscal source of truth. Bevox follows
+    // the same rule: only document identity is guarded here; provider-side
+    // normalization of receptor, dates, totals or detail text must not block
+    // the synchronous PDF representation.
+    assertProviderDocumentIdentity(input.result, document, input.expectedIssuerRut);
   } catch (error) {
     return failedResult(error, "SIGNED_XML_INVALID", "No se pudo validar el XML firmado.");
   }

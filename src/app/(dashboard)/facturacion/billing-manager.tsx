@@ -537,8 +537,8 @@ export function BillingManager({
                       )}
                       <IconButton
                         href={`/api/invoices/${item.id}/pdf`}
-                        disabled={!item.hasPdf}
-                        disabledReason="El PDF tributario aún se está generando."
+                        disabled={!item.hasPdf && !item.hasXml}
+                        disabledReason={item.hasXml ? "El PDF se generará al abrirlo." : "El XML firmado aún no está disponible."}
                         label="Descargar PDF fiscal"
                         icon={<FileDown size={17} />}
                       />
