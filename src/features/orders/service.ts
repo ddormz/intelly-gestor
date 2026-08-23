@@ -54,9 +54,13 @@ function orderNumber(id: string): string {
   return `OP-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${id.slice(0, 6).toUpperCase()}`;
 }
 
-async function resolveCartLines(tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0], input: OrderCartInput, role: OrderActorRole): Promise<{ item: typeof catalogItems["$inferSelect"]; line: OrderLineInput }[]> {
-  const resolved: { item: typeof catalogItems["$inferSelect"]; line: OrderLineInput }[] = [];
+async function resolveCartLines(tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0], input: OrderCartInput, role: OrderActorRole): Promise<{ item: typeof catalogItems["$inferSelect"] | null; line: OrderLineInput }[]> {
+  const resolved: { item: typeof catalogItems["$inferSelect"] | null; line: OrderLineInput }[] = [];
   for (const line of input.lines) {
+    if (line.catalogItemId === null) {
+      resolved.push({ item: null, line: { catalogItemId: undefined, code: null, description: line.description!, quantity: line.quantity, unitPrice: clp(line.unitPrice), taxRate: 19, taxCategory: "taxable" } });
+      continue;
+    }
     const [item] = await tx.select().from(catalogItems).where(eq(catalogItems.id, line.catalogItemId)).limit(1).for("update").execute();
     if (!item || item.status !== "active") throw new AppError("ITEM_NOT_FOUND", "El producto o servicio no está disponible.", 404);
     const unitPrice = validateUnitPriceOverride(line.unitPrice, item.unitPrice, role);
@@ -109,13 +113,13 @@ export async function createOrderFromCart(input: OrderCartInput, userId: string,
     await tx.insert(paymentOrderLines).values(calculated.lines.map((line, index) => ({
       id: randomUUID(),
       paymentOrderId: id,
-      catalogItemId: line.catalogItemId,
+      catalogItemId: line.catalogItemId ?? null,
       code: line.code,
       description: line.description,
       quantity: String(line.quantity),
       unitPrice: String(line.unitPrice.minor),
       discountAmount: String(line.discountAmount.minor),
-      taxRate: resolved[index]?.item.taxRate ?? String(line.taxRate),
+      taxRate: resolved[index]?.item?.taxRate ?? String(line.taxRate),
       subtotal: String(line.subtotal.minor),
       taxAmount: String(line.taxAmount.minor),
       total: String(line.total.minor),
@@ -145,7 +149,7 @@ function orderPublicDataChanged(order: typeof paymentOrders["$inferSelect"], pre
   if (previousLines.length !== nextLines.length) return true;
   return previousLines.some((line, index) => {
     const next = nextLines[index];
-    return !next || line.catalogItemId !== next.catalogItemId || line.code !== next.code || line.description !== next.description || Number(line.quantity) !== next.quantity || decimalToMinor(line.unitPrice) !== next.unitPrice.minor || decimalToMinor(line.discountAmount) !== next.discountAmount.minor || Number(line.taxRate) !== next.taxRate || decimalToMinor(line.subtotal) !== next.subtotal.minor || decimalToMinor(line.taxAmount) !== next.taxAmount.minor || decimalToMinor(line.total) !== next.total.minor;
+    return !next || line.catalogItemId !== (next.catalogItemId ?? null) || line.code !== next.code || line.description !== next.description || Number(line.quantity) !== next.quantity || decimalToMinor(line.unitPrice) !== next.unitPrice.minor || decimalToMinor(line.discountAmount) !== next.discountAmount.minor || Number(line.taxRate) !== next.taxRate || decimalToMinor(line.subtotal) !== next.subtotal.minor || decimalToMinor(line.taxAmount) !== next.taxAmount.minor || decimalToMinor(line.total) !== next.total.minor;
   });
 }
 
@@ -184,8 +188,8 @@ export async function updateOrderFromCart(input: UpdateOrderInput, userId: strin
     if (Number(updateResult[0]?.affectedRows ?? 0) !== 1) throw new AppError("ORDER_VERSION_CONFLICT", "La orden cambió mientras la editabas. Recarga e intenta nuevamente.", 409);
     await tx.delete(paymentOrderLines).where(eq(paymentOrderLines.paymentOrderId, id)).execute();
     await tx.insert(paymentOrderLines).values(calculated.lines.map((line, index) => ({
-      id: randomUUID(), paymentOrderId: id, catalogItemId: line.catalogItemId, code: line.code, description: line.description,
-      quantity: String(line.quantity), unitPrice: String(line.unitPrice.minor), discountAmount: String(line.discountAmount.minor), taxRate: resolved[index]?.item.taxRate ?? String(line.taxRate),
+      id: randomUUID(), paymentOrderId: id, catalogItemId: line.catalogItemId ?? null, code: line.code, description: line.description,
+      quantity: String(line.quantity), unitPrice: String(line.unitPrice.minor), discountAmount: String(line.discountAmount.minor), taxRate: resolved[index]?.item?.taxRate ?? String(line.taxRate),
       subtotal: String(line.subtotal.minor), taxAmount: String(line.taxAmount.minor), total: String(line.total.minor), sortOrder: index,
     })));
     await auditOrder(tx, userId, "order.updated", id, { lineCount: calculated.lines.length, financial: orderPublicDataChanged(order, previousLines, calculated.lines, parsed), publicTokenRotated: Boolean(token) });

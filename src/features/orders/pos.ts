@@ -1,5 +1,5 @@
 export type PosDraftLine = {
-  catalogItemId: string;
+  catalogItemId: string | null;
   quantity: number;
   unitPrice: number;
   name?: string;
@@ -19,7 +19,7 @@ export type PosDraft = {
 export function buildOrderCartPayload(draft: PosDraft) {
   return {
     clientId: draft.clientId,
-    lines: draft.lines.map(({ catalogItemId, quantity, unitPrice }) => ({ catalogItemId, quantity, unitPrice })),
+    lines: draft.lines.map(({ catalogItemId, quantity, unitPrice, name }) => ({ catalogItemId, ...(catalogItemId === null ? { description: name?.trim() ?? "" } : {}), quantity, unitPrice })),
     discountPercent: draft.discountPercent,
     discountReason: draft.discountReason,
     dueAt: draft.dueAt,

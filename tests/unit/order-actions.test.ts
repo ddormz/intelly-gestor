@@ -75,6 +75,50 @@ describe("payment-order cart contract", () => {
     expect(orderCartSchema.safeParse({ clientId, lines: [{ catalogItemId: itemId, quantity: 1, unitPrice: "1.5" }] }).success).toBe(false);
   });
 
+  it("accepts a taxable free line with an initial zero price", () => {
+    expect(orderCartSchema.safeParse({
+      clientId,
+      lines: [{ catalogItemId: null, description: "Instalación especial", quantity: 1, unitPrice: 0 }],
+    }).success).toBe(true);
+    expect(orderCartSchema.safeParse({
+      clientId,
+      lines: [{ catalogItemId: null, description: " ", quantity: 1, unitPrice: 0 }],
+    }).success).toBe(false);
+  });
+
+  it("persists a free line without creating a catalog reference", async () => {
+    const { inserts } = configureDb([[{ id: clientId, status: "active" }]]);
+
+    await createOrderFromCart({
+      clientId,
+      lines: [{ catalogItemId: null, description: "Instalación especial", quantity: 1, unitPrice: 0 }],
+      discountPercent: 0,
+      discountReason: "",
+    }, "user-id", "operator");
+
+    const lineBatch = inserts.find((value) => Array.isArray(value) && value.some((item) => item.description === "Instalación especial")) as Array<Record<string, unknown>>;
+    expect(lineBatch[0]).toMatchObject({ catalogItemId: null, code: null, description: "Instalación especial", quantity: "1", unitPrice: "0", taxRate: "19", subtotal: "0", taxAmount: "0", total: "0" });
+  });
+
+  it("updates a persisted free line without resolving a catalog item", async () => {
+    const { inserts } = configureDb([
+      [{ id: "order-id", status: "draft", version: 1, clientId }],
+      [{ id: clientId, status: "active" }],
+      [{ id: "old-line", paymentOrderId: "order-id", catalogItemId: null, code: null, description: "Anterior", quantity: "1", unitPrice: "0", discountAmount: "0", taxRate: "19", subtotal: "0", taxAmount: "0", total: "0", sortOrder: 0 }],
+    ]);
+
+    await updateOrderFromCart({
+      id: "order-id",
+      clientId,
+      lines: [{ catalogItemId: null, description: "Nueva instalación", quantity: 1, unitPrice: 2500 }],
+      discountPercent: 0,
+      discountReason: "",
+    }, "user-id", 1, "operator");
+
+    const lineBatch = inserts.find((value) => Array.isArray(value) && value.some((item) => item.description === "Nueva instalación")) as Array<Record<string, unknown>>;
+    expect(lineBatch[0]).toMatchObject({ catalogItemId: null, description: "Nueva instalación", unitPrice: "2500", taxRate: "19", taxAmount: "475", total: "2975" });
+  });
+
   it("allows a bounded operator override and rejects an unsafe override", async () => {
     const { inserts } = configureDb([
       [{ id: clientId, status: "active" }],

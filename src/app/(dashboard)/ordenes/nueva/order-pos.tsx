@@ -100,7 +100,7 @@ export function OrderPos({ action, initial }: { action: (state: ActionState, for
     setCatalogResults([]);
   }
 
-  function removeLine(catalogItemId: string) {
+  function removeLine(catalogItemId: string | null) {
     setLines((current) => current.filter((line) => line.catalogItemId !== catalogItemId));
   }
 
