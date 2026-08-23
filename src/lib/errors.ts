@@ -22,7 +22,10 @@ export function safeError(error: unknown) {
   };
 }
 
-const secretKeys = /password|secret|token|authorization|api[-_]?key|database_url|signed[-_]?xml|print[-_]?payload|^ted|^pdf|^xml$|base64|timbre|cert|private[-_]?key|rsa[-_]?key|key[-_]?content|tedxml|pdf417/i;
+// Fiscal evidence is intentionally retained because the local renderer uses
+// the provider print payload (XML/TED/PDF417) to rebuild the tax document.
+// Credentials remain redacted from audit and integration metadata.
+const secretKeys = /password|secret|token|authorization|api[-_]?key|database_url|cert|private[-_]?key|rsa[-_]?key|key[-_]?content/i;
 
 function redactValue(value: unknown, key = ""): unknown {
   if (secretKeys.test(key)) return "[REDACTED]";
