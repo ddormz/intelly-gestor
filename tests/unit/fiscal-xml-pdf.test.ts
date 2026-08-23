@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { parseSignedDteXml, renderFiscalPdf, renderTedPdf417 } from "@/features/billing/xml";
+import { buildFiscalPdfSections, parseSignedDteXml, renderFiscalPdf, renderTedPdf417 } from "@/features/billing/xml";
 
 const fixture = new URL("../fixtures/fiscal/factura-33-signed.xml", import.meta.url);
 
@@ -57,5 +57,19 @@ describe("signed DTE XML and local fiscal PDF", () => {
     document.details[0]!.discountPercent = 10;
     const pdf = await renderFiscalPdf(document);
     expect(new TextDecoder().decode(pdf)).toContain("%PDF");
+  });
+
+  it("builds the traditional fiscal sections without losing long text", async () => {
+    const document = parseSignedDteXml(await readFile(fixture, "utf8"));
+    document.issuer.name = "PRESTACIÓN DE SERVICIOS INFORMÁTICOS Y MATERIAS AFINES SPA";
+    document.issuer.businessLine = "Servicios de tecnología, consultoría y soporte informático";
+    document.receiver.name = "CLIENTE ÑANDÚ DE INVERSIONES Y SERVICIOS SPA";
+
+    expect(buildFiscalPdfSections(document)).toEqual([
+      "INFORMACIÓN DEL RECEPTOR",
+      "DETALLE DEL DOCUMENTO",
+      "INFORMACIÓN DE PAGOS",
+      "RESUMEN DEL DOCUMENTO",
+    ]);
   });
 });

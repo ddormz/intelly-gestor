@@ -181,4 +181,4 @@ export async function renderTedPdf417(tedXml: string): Promise<string> {
   }
 }
 
-export { renderFiscalPdf };
+export { buildFiscalPdfSections, renderFiscalPdf } from "./fiscal-pdf";
