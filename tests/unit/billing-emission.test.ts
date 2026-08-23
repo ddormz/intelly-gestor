@@ -1,7 +1,8 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { assertProviderMatchesOrder, buildFacturaPayload, verifyIntellyDteSignature } from "@/features/billing/emission";
-import { parseSignedDteXmlBytes } from "@/features/billing/xml";
+import { decodeSignedDteXml, parseSignedDteXmlBytes } from "@/features/billing/xml";
+import { detectXmlEncoding } from "@/features/billing/evidence";
 
 describe("fiscal emission orchestration contracts", () => {
   it("maps paid order snapshots to the DTE 33 NET payload", () => {
@@ -27,6 +28,18 @@ describe("fiscal emission orchestration contracts", () => {
     const source = `<?xml version="1.0" encoding="ISO-8859-1"?><DTE><Documento><Encabezado><IdDoc><TipoDTE>33</TipoDTE><Folio>42</Folio><FchEmis>2026-08-15</FchEmis></IdDoc><Emisor><RUTEmisor>76123456-7</RUTEmisor><RznSoc>EMISOR SPA</RznSoc></Emisor><Receptor><RUTRecep>96543210-1</RUTRecep><RznSocRecep>NIÑO SPA</RznSocRecep></Receptor><Totales><MntNeto>100</MntNeto><IVA>19</IVA><MntTotal>119</MntTotal></Totales></Encabezado><Detalle><NmbItem>Servicio</NmbItem><PrcItem>100</PrcItem><MontoItem>100</MontoItem></Detalle><TED><DD><TD>33</TD><F>42</F></DD></TED></Documento></DTE>`;
     const bytes = Buffer.from(source, "latin1");
     expect(parseSignedDteXmlBytes(bytes).receiver.name).toBe("NIÑO SPA");
+  });
+
+  it("prefers the actual UTF-8 bytes when the provider keeps an ISO declaration", () => {
+    const source = `<?xml version="1.0" encoding="ISO-8859-1"?><DTE><GiroEmis>PRESTACIÓN DE SERVICIOS INFORMÁTICOS Y MATERIAS AFINES</GiroEmis><RznSocRecep>NIÑO SPA</RznSocRecep></DTE>`;
+    const utf8Bytes = new Uint8Array(Buffer.from(source, "utf8"));
+    const latin1Bytes = new Uint8Array(Buffer.from(source, "latin1"));
+
+    expect(decodeSignedDteXml(utf8Bytes)).toContain("PRESTACIÓN DE SERVICIOS INFORMÁTICOS Y MATERIAS AFINES");
+    expect(decodeSignedDteXml(utf8Bytes)).toContain("NIÑO SPA");
+    expect(detectXmlEncoding(utf8Bytes)).toBe("UTF-8");
+    expect(decodeSignedDteXml(latin1Bytes)).toContain("PRESTACIÓN DE SERVICIOS INFORMÁTICOS Y MATERIAS AFINES");
+    expect(detectXmlEncoding(latin1Bytes)).toBe("ISO-8859-1");
   });
 
   it("rejects signed XML whose fiscal identity or totals do not match the order", () => {

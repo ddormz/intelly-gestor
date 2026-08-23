@@ -160,8 +160,10 @@ export function decodeSignedDteXml(bytes: Uint8Array): string {
   if (bytes.byteLength === 0) throw new FiscalXmlError("DTE_XML_EMPTY");
   const prefix = Buffer.from(bytes.slice(0, 512)).toString("latin1");
   const declaration = prefix.match(/encoding\s*=\s*["']([^"']+)["']/i)?.[1]?.toLowerCase();
-  if (declaration === "iso-8859-1" || declaration === "latin1" || declaration === "windows-1252") return Buffer.from(bytes).toString("latin1");
-  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new FiscalXmlError("DTE_XML_ENCODING_INVALID"); }
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { /* Try the declared legacy encoding below. */ }
+  if (declaration === "windows-1252") return new TextDecoder("windows-1252").decode(bytes);
+  if (declaration === "iso-8859-1" || declaration === "latin1") return Buffer.from(bytes).toString("latin1");
+  throw new FiscalXmlError("DTE_XML_ENCODING_INVALID");
 }
 
 export function parseSignedDteXmlBytes(bytes: Uint8Array): ParsedDteDocument {

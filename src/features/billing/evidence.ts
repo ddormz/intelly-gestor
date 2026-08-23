@@ -107,7 +107,13 @@ async function storeArtifact(invoiceId: string, metadata: FiscalEvidenceMetadata
   return { ...row, bytes };
 }
 
-function detectXmlEncoding(bytes: Uint8Array): string {
+export function detectXmlEncoding(bytes: Uint8Array): string {
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return "UTF-8";
+  } catch {
+    // The provider may return real legacy bytes while declaring ISO-8859-1.
+  }
   const prefix = Buffer.from(bytes.slice(0, 512)).toString("latin1");
   const declaration = prefix.match(/encoding\s*=\s*["']([^"']+)["']/i)?.[1];
   return declaration?.trim() || "ISO-8859-1";
