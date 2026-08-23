@@ -9,10 +9,13 @@ import { providerData, type IntellyDteFacturaPayload } from "@/features/integrat
 import { validChileanRut } from "@/features/clients/validation";
 import { getEnv } from "@/lib/env";
 import { AppError } from "@/lib/errors";
-import { getFiscalEvidenceArtifact, storeReconstructedPdf, storeSignedXmlBytes } from "./evidence";
+import { getFiscalEvidenceArtifact, storeReconstructedPdf } from "./evidence";
+import { assertProviderMatchesOrder, materializeInvoiceEvidence, normalizeRut, type EvidenceMaterializationResult } from "./evidence-orchestration";
 import { parseSignedDteXmlBytes, renderFiscalPdf } from "./xml";
 import { buildAuditEvent } from "@/features/audit/service";
 import { redactMetadata } from "@/lib/errors";
+
+export { assertProviderMatchesOrder } from "./evidence-orchestration";
 
 type FiscalClientSnapshot = { taxId: string | null; legalName: string; giro: string | null; addressLine: string | null; commune: string | null; city: string | null; email?: string };
 type FiscalOrderSnapshot = { subtotal?: string; total: string; taxTotal: string; discountTotal: string; notes: string | null };
@@ -97,48 +100,6 @@ function requestHash(payload: IntellyDteFacturaPayload): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
-function decodeProviderXml(value: string): Uint8Array {
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(value) || value.length % 4 === 1) throw new AppError("SIGNED_XML_INVALID", "El XML firmado de IntellyDTE no es base64 válido.", 502);
-  const bytes = new Uint8Array(Buffer.from(value, "base64"));
-  if (!bytes.byteLength) throw new AppError("SIGNED_XML_INVALID", "El XML firmado de IntellyDTE está vacío.", 502);
-  return bytes;
-}
-
-function normalizeRut(value: string): string {
-  const compact = value.replace(/[^0-9kK]/g, "").toUpperCase();
-  return compact.length > 1 ? `${compact.slice(0, -1)}-${compact.slice(-1)}` : compact;
-}
-
-export function assertProviderMatchesOrder(result: Extract<InvoiceResult, { kind: "issued" }>, document: ReturnType<typeof parseSignedDteXmlBytes>, payload: IntellyDteFacturaPayload, expectedIssuerRut?: string | null): void {
-  if (document.type !== "33" || result.tipoDte && result.tipoDte !== "33" || result.printPayload && result.printPayload.signedXmlBase64 && result.printPayload.signedXmlBase64 !== result.signedXmlBase64) throw new AppError("SIGNED_XML_DTE_TYPE_MISMATCH", "El XML firmado no corresponde a una Factura 33.", 502);
-  if (String(document.folio) !== String(result.folio)) throw new AppError("SIGNED_XML_FOLIO_MISMATCH", "El folio del XML firmado no coincide con IntellyDTE.", 502);
-  if (expectedIssuerRut && normalizeRut(document.issuer.rut) !== normalizeRut(expectedIssuerRut)) throw new AppError("SIGNED_XML_ISSUER_MISMATCH", "El emisor del XML firmado no coincide con la configuración fiscal.", 502);
-  if (normalizeRut(document.receiver.rut) !== normalizeRut(payload.receptor.rut) || document.receiver.name.trim() !== payload.receptor.razonSocial.trim()) throw new AppError("SIGNED_XML_RECEIVER_MISMATCH", "El receptor del XML firmado no coincide con la orden.", 502);
-  if (document.totals.net !== (payload.montoNeto ?? 0) || document.totals.exempt !== (payload.montoExento ?? 0) || document.totals.iva !== (payload.montoIva ?? 0) || document.totals.total !== payload.montoTotal) throw new AppError("SIGNED_XML_TOTALS_MISMATCH", "Los totales del XML firmado no coinciden con la orden.", 502);
-  if (payload.fechaEmision && document.issueDate !== payload.fechaEmision) throw new AppError("SIGNED_XML_DATE_MISMATCH", "La fecha del XML firmado no coincide con la orden.", 502);
-  if (document.details.length !== payload.items.length) throw new AppError("SIGNED_XML_DETAIL_COUNT_MISMATCH", "El detalle del XML firmado no coincide con la orden.", 502);
-  document.details.forEach((detail, index) => {
-    const item = payload.items[index]!;
-    if (detail.name.trim() !== item.nombre.trim() || detail.quantity !== item.cantidad || detail.unitPrice !== item.precioUnitario || detail.amount !== item.montoItem || detail.discountAmount !== (item.descuentoMonto ?? 0) || detail.exempt !== Boolean(item.exento)) throw new AppError("SIGNED_XML_DETAIL_MISMATCH", "Una línea del XML firmado no coincide con la orden.", 502);
-  });
-  if (result.printPayload && result.printPayload.signedXmlBase64 && document.type !== "33") throw new AppError("SIGNED_XML_DTE_TYPE_MISMATCH", "El proveedor devolvió un DTE distinto de 33.", 502);
-}
-
-async function materializeEvidence(invoiceId: string, result: Extract<InvoiceResult, { kind: "issued" }>, payload: IntellyDteFacturaPayload, expectedIssuerRut?: string | null) {
-  if (!result.signedXmlBase64) return { signed: null, reconstructed: null, error: new AppError("SIGNED_XML_MISSING", "IntellyDTE no devolvió el XML firmado.", 502) };
-  const bytes = decodeProviderXml(result.signedXmlBase64);
-  const document = parseSignedDteXmlBytes(bytes);
-  assertProviderMatchesOrder(result, document, payload, expectedIssuerRut);
-  const signed = await storeSignedXmlBytes(invoiceId, { dteType: document.type, folio: document.folio }, bytes);
-  try {
-    const pdf = await renderFiscalPdf(document);
-    const reconstructed = await storeReconstructedPdf(invoiceId, { dteType: document.type, folio: document.folio, rendererVersion: "fiscal-pdf-v2" }, pdf);
-    return { document, signed, reconstructed, error: null };
-  } catch (error) {
-    return { document, signed, reconstructed: null, error: error instanceof AppError ? error : new AppError("PDF_RECONSTRUCTION_FAILED", "No se pudo reconstruir el PDF fiscal.", 500) };
-  }
-}
-
 async function retryLocalPdf(invoiceId: string) {
   const signed = await getFiscalEvidenceArtifact(invoiceId, "signed_xml");
   if (!signed?.bytes) throw new AppError("SIGNED_XML_MISSING", "No existe XML firmado para reconstruir el PDF.", 409);
@@ -176,19 +137,19 @@ async function applyInvoiceResult(db: BillingDb, invoice: typeof invoices["$infe
     return result;
   }
   if (result.kind === "issued") {
-    let evidence: Awaited<ReturnType<typeof materializeEvidence>>;
+    let evidence: EvidenceMaterializationResult;
     try {
-      evidence = await materializeEvidence(invoice.id, result, payload, invoice.tenantRut);
+      evidence = await materializeInvoiceEvidence({ invoiceId: invoice.id, result, payload, expectedIssuerRut: invoice.tenantRut });
     } catch (error) {
-      evidence = { signed: null, reconstructed: null, error: error instanceof AppError ? error : new AppError("EVIDENCE_GENERATION_FAILED", "No se pudo materializar la evidencia fiscal.", 500) };
+      evidence = { status: "failed", signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null, errorCode: error instanceof AppError ? error.code : "EVIDENCE_GENERATION_FAILED", errorMessage: error instanceof AppError ? error.message : "No se pudo materializar la evidencia fiscal." };
     }
-    if (evidence.signed) {
-      const localError = evidence.error?.message.slice(0, 300) ?? null;
+    if (evidence.status === "complete" || evidence.status === "failed") {
+      const complete = evidence.status === "complete";
       await db.transaction(async (tx) => {
-        await tx.update(invoices).set({ status: "issued", providerDocumentId: result.providerDocumentId, folio: result.folio, trackId: result.trackId ?? invoice.trackId, siiStatus: result.siiStatus ?? invoice.siiStatus, siiGlosa: result.siiGlosa ?? invoice.siiGlosa, signedXmlEvidenceId: evidence.signed.id, reconstructedPdfEvidenceId: evidence.reconstructed?.id ?? invoice.reconstructedPdfEvidenceId, evidenceStatus: evidence.reconstructed ? "complete" : "pending", evidenceError: localError, issuedAt: invoice.issuedAt ?? new Date(result.issuedAt), lastErrorCode: evidence.error ? "PDF_RECONSTRUCTION_RETRYABLE" : null, lastErrorMessage: localError, updatedAt: now }).where(eq(invoices.id, invoice.id));
+        await tx.update(invoices).set({ status: "issued", providerDocumentId: result.providerDocumentId, folio: result.folio, trackId: result.trackId ?? invoice.trackId, siiStatus: result.siiStatus ?? invoice.siiStatus, siiGlosa: result.siiGlosa ?? invoice.siiGlosa, signedXmlEvidenceId: evidence.signedXmlEvidenceId ?? invoice.signedXmlEvidenceId, reconstructedPdfEvidenceId: evidence.reconstructedPdfEvidenceId ?? invoice.reconstructedPdfEvidenceId, evidenceStatus: complete ? "complete" : "failed", evidenceError: complete ? null : evidence.errorMessage, issuedAt: invoice.issuedAt ?? new Date(result.issuedAt), lastErrorCode: complete ? null : evidence.errorCode, lastErrorMessage: complete ? null : evidence.errorMessage, updatedAt: now }).where(eq(invoices.id, invoice.id));
         await tx.update(paymentOrders).set({ status: "invoiced", invoicedAt: new Date(), updatedAt: now }).where(and(eq(paymentOrders.id, orderId), eq(paymentOrders.status, "paid")));
-        await tx.update(integrationAttempts).set({ status: "issued", completedAt: now, providerCode: result.providerDocumentId, providerDocumentId: result.providerDocumentId, responseBody: providerResponseBody(result), safeMessage: evidence.error ? "Factura emitida; PDF fiscal pendiente de reconstrucción." : "Factura emitida y evidencia fiscal almacenada." }).where(eq(integrationAttempts.id, attemptId));
-        await tx.insert(auditEvents).values(buildAuditEvent({ actorUserId: userId, actorType: "user", action: "invoice.issued", entityType: "invoice", entityId: invoice.id, metadata: { providerDocumentId: result.providerDocumentId, folio: result.folio, evidenceStatus: evidence.reconstructed ? "complete" : "pending" } }));
+        await tx.update(integrationAttempts).set({ status: "issued", completedAt: now, providerCode: result.providerDocumentId, providerDocumentId: result.providerDocumentId, responseBody: providerResponseBody(result), safeMessage: complete ? "Factura emitida y evidencia fiscal almacenada." : "Factura emitida; la evidencia fiscal requiere reintento." }).where(eq(integrationAttempts.id, attemptId));
+        await tx.insert(auditEvents).values(buildAuditEvent({ actorUserId: userId, actorType: "user", action: "invoice.issued", entityType: "invoice", entityId: invoice.id, metadata: { providerDocumentId: result.providerDocumentId, folio: result.folio, evidenceStatus: complete ? "complete" : "failed" } }));
       });
       return result;
     }
@@ -197,14 +158,14 @@ async function applyInvoiceResult(db: BillingDb, invoice: typeof invoices["$infe
       let regenerationError: Error | null = null;
       try { regeneratedPdfId = (await retryLocalPdf(invoice.id)).id; } catch (error) { regenerationError = error instanceof Error ? error : new Error("PDF_RECONSTRUCTION_FAILED"); }
       await db.transaction(async (tx) => {
-        await tx.update(invoices).set({ status: "issued", providerDocumentId: result.providerDocumentId, folio: result.folio, trackId: result.trackId ?? invoice.trackId, siiStatus: result.siiStatus ?? invoice.siiStatus, siiGlosa: result.siiGlosa ?? invoice.siiGlosa, reconstructedPdfEvidenceId: regeneratedPdfId ?? invoice.reconstructedPdfEvidenceId, evidenceStatus: regeneratedPdfId ? "complete" : "pending", evidenceError: regenerationError?.message.slice(0, 300) ?? null, lastErrorCode: regeneratedPdfId ? null : "PDF_RECONSTRUCTION_RETRYABLE", lastErrorMessage: regenerationError ? "Factura emitida; PDF fiscal pendiente de reconstrucción." : null, issuedAt: invoice.issuedAt ?? new Date(result.issuedAt), updatedAt: now }).where(eq(invoices.id, invoice.id));
+        await tx.update(invoices).set({ status: "issued", providerDocumentId: result.providerDocumentId, folio: result.folio, trackId: result.trackId ?? invoice.trackId, siiStatus: result.siiStatus ?? invoice.siiStatus, siiGlosa: result.siiGlosa ?? invoice.siiGlosa, reconstructedPdfEvidenceId: regeneratedPdfId ?? invoice.reconstructedPdfEvidenceId, evidenceStatus: regeneratedPdfId ? "complete" : "failed", evidenceError: regenerationError?.message.slice(0, 300) ?? null, lastErrorCode: regeneratedPdfId ? null : "PDF_RECONSTRUCTION_RETRYABLE", lastErrorMessage: regenerationError ? "Factura emitida; PDF fiscal pendiente de reconstrucción." : null, issuedAt: invoice.issuedAt ?? new Date(result.issuedAt), updatedAt: now }).where(eq(invoices.id, invoice.id));
         await tx.update(paymentOrders).set({ status: "invoiced", invoicedAt: new Date(), updatedAt: now }).where(and(eq(paymentOrders.id, orderId), eq(paymentOrders.status, "paid")));
         await tx.update(integrationAttempts).set({ status: "issued", completedAt: now, providerCode: result.providerDocumentId, providerDocumentId: result.providerDocumentId, responseBody: providerResponseBody(result), safeMessage: "Factura emitida; PDF fiscal pendiente de reconstrucción." }).where(eq(integrationAttempts.id, attemptId));
       });
       return result;
     }
     await db.transaction(async (tx) => {
-      await tx.update(invoices).set({ status: "issued", providerDocumentId: result.providerDocumentId, folio: result.folio, trackId: result.trackId ?? invoice.trackId, siiStatus: result.siiStatus ?? invoice.siiStatus, siiGlosa: result.siiGlosa ?? invoice.siiGlosa, evidenceStatus: "pending", evidenceError: evidence.error?.message.slice(0, 300) ?? "Falta XML firmado.", issuedAt: invoice.issuedAt ?? new Date(result.issuedAt), lastErrorCode: "SIGNED_XML_PENDING", lastErrorMessage: "La factura fue aceptada; falta almacenar el XML firmado.", updatedAt: now }).where(eq(invoices.id, invoice.id));
+      await tx.update(invoices).set({ status: "issued", providerDocumentId: result.providerDocumentId, folio: result.folio, trackId: result.trackId ?? invoice.trackId, siiStatus: result.siiStatus ?? invoice.siiStatus, siiGlosa: result.siiGlosa ?? invoice.siiGlosa, evidenceStatus: "pending", evidenceError: evidence.errorMessage ?? "Falta XML firmado.", issuedAt: invoice.issuedAt ?? new Date(result.issuedAt), lastErrorCode: evidence.errorCode ?? "SIGNED_XML_PENDING", lastErrorMessage: "La factura fue aceptada; falta almacenar el XML firmado.", updatedAt: now }).where(eq(invoices.id, invoice.id));
       await tx.update(paymentOrders).set({ status: "invoiced", invoicedAt: new Date(), updatedAt: now }).where(and(eq(paymentOrders.id, orderId), eq(paymentOrders.status, "paid")));
       await tx.update(integrationAttempts).set({ status: "issued", completedAt: now, providerCode: result.providerDocumentId, providerDocumentId: result.providerDocumentId, responseBody: providerResponseBody(result), safeMessage: "Factura aceptada; evidencia tributaria pendiente." }).where(eq(integrationAttempts.id, attemptId));
       await tx.insert(auditEvents).values(buildAuditEvent({ actorUserId: userId, actorType: "user", action: "invoice.issued", entityType: "invoice", entityId: invoice.id, metadata: { providerDocumentId: result.providerDocumentId, folio: result.folio, evidenceStatus: "pending" } }));
@@ -300,9 +261,13 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
   }
   const dataResultValue = providerData(body);
   const issuedResult: InvoiceResult = dataResultValue.folio && dataResultValue.printPayload?.signedXmlBase64 ? { kind: "issued", providerDocumentId: dteRecordId, folio: dataResultValue.folio, tipoDte: dataResultValue.tipoDte, issuedAt: dataResultValue.issuedAt ?? new Date().toISOString(), trackId: dataResultValue.trackId, siiStatus: dataResultValue.siiStatus, siiGlosa: dataResultValue.siiGlosa, signedXmlBase64: dataResultValue.printPayload.signedXmlBase64, printPayload: dataResultValue.printPayload, providerBody: body } : { kind: "pending", providerDocumentId: dteRecordId, folio: dataResultValue.folio, trackId: dataResultValue.trackId, siiStatus: dataResultValue.siiStatus, siiGlosa: dataResultValue.siiGlosa, providerBody: body };
-  let materialized: Awaited<ReturnType<typeof materializeEvidence>> | null = null;
+  let materialized: EvidenceMaterializationResult | null = null;
   if (event === "dte.accepted" && issuedResult.kind === "issued") {
-    try { materialized = await materializeEvidence(invoice.id, issuedResult, await payloadForInvoice(db, invoice.paymentOrderId), invoice.tenantRut); } catch (error) { materialized = { signed: null, reconstructed: null, error: error instanceof AppError ? error : new AppError("EVIDENCE_GENERATION_FAILED", "No se pudo materializar la evidencia fiscal.", 500) }; }
+    try {
+      materialized = await materializeInvoiceEvidence({ invoiceId: invoice.id, result: issuedResult, payload: await payloadForInvoice(db, invoice.paymentOrderId), expectedIssuerRut: invoice.tenantRut });
+    } catch (error) {
+      materialized = { status: "failed", signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null, errorCode: error instanceof AppError ? error.code : "EVIDENCE_GENERATION_FAILED", errorMessage: error instanceof AppError ? error.message : "No se pudo materializar la evidencia fiscal." };
+    }
   }
   await db.transaction(async (tx) => {
     const currentRows = await tx.select().from(invoices).where(eq(invoices.id, invoice.id)).limit(1).execute();
@@ -313,10 +278,13 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
     const terminal = current.status === "issued" || current.status === "rejected";
     const accepted = event === "dte.accepted";
     const nextStatus = terminal ? current.status : event === "dte.rejected" ? "rejected" : accepted ? "issued" : event === "dte.enqueued" ? "pending" : "processing";
-    const evidenceStatus = accepted ? materialized?.reconstructed ? "complete" : current.evidenceStatus === "complete" ? "complete" : "pending" : current.evidenceStatus;
+    const evidenceStatus = accepted ? materialized?.status === "complete" ? "complete" : materialized?.status === "failed" ? "failed" : current.evidenceStatus === "complete" ? "complete" : "pending" : current.evidenceStatus;
     const effectiveTenantRut = current.tenantRut;
-    const evidencePending = accepted && evidenceStatus !== "complete";
-    await tx.update(invoices).set({ status: nextStatus, tenantRut: effectiveTenantRut, providerDocumentId: dteRecordId, folio: dataResultValue.folio ?? current.folio, trackId: incomingTrackId ?? current.trackId, siiStatus: incomingSiiStatus ?? current.siiStatus, siiGlosa: incomingSiiGlosa ?? current.siiGlosa, signedXmlEvidenceId: materialized?.signed?.id ?? current.signedXmlEvidenceId, reconstructedPdfEvidenceId: materialized?.reconstructed?.id ?? current.reconstructedPdfEvidenceId, evidenceStatus, evidenceError: materialized?.error?.message.slice(0, 300) ?? (evidencePending ? "La factura fue aceptada; falta almacenar su evidencia tributaria." : current.evidenceError), rejectedAt: nextStatus === "rejected" ? new Date() : current.rejectedAt, issuedAt: nextStatus === "issued" ? current.issuedAt ?? new Date() : current.issuedAt, lastErrorCode: materialized?.error ? "PDF_RECONSTRUCTION_RETRYABLE" : evidencePending ? "SIGNED_XML_PENDING" : nextStatus === "rejected" ? "SII_REJECTED" : current.lastErrorCode, lastErrorMessage: materialized?.error?.message.slice(0, 300) ?? (evidencePending ? "La factura fue aceptada; evidencia tributaria pendiente." : nextStatus === "rejected" ? incomingSiiGlosa ?? "Documento rechazado por el proveedor." : current.lastErrorMessage), updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
+    const evidencePending = accepted && evidenceStatus === "pending";
+    const evidenceError = materialized?.status === "complete" ? null : materialized?.errorMessage ?? (evidencePending ? "La factura fue aceptada; falta almacenar su evidencia tributaria." : current.evidenceError);
+    const evidenceErrorCode = materialized?.status === "complete" ? null : materialized?.errorCode ?? (evidencePending ? "SIGNED_XML_PENDING" : nextStatus === "rejected" ? "SII_REJECTED" : current.lastErrorCode);
+    const evidenceErrorMessage = materialized?.status === "complete" ? null : materialized?.errorMessage ?? (evidencePending ? "La factura fue aceptada; evidencia tributaria pendiente." : nextStatus === "rejected" ? incomingSiiGlosa ?? "Documento rechazado por el proveedor." : current.lastErrorMessage);
+    await tx.update(invoices).set({ status: nextStatus, tenantRut: effectiveTenantRut, providerDocumentId: dteRecordId, folio: dataResultValue.folio ?? current.folio, trackId: incomingTrackId ?? current.trackId, siiStatus: incomingSiiStatus ?? current.siiStatus, siiGlosa: incomingSiiGlosa ?? current.siiGlosa, signedXmlEvidenceId: materialized?.signedXmlEvidenceId ?? current.signedXmlEvidenceId, reconstructedPdfEvidenceId: materialized?.reconstructedPdfEvidenceId ?? current.reconstructedPdfEvidenceId, evidenceStatus, evidenceError, rejectedAt: nextStatus === "rejected" ? new Date() : current.rejectedAt, issuedAt: nextStatus === "issued" ? current.issuedAt ?? new Date() : current.issuedAt, lastErrorCode: evidenceErrorCode, lastErrorMessage: evidenceErrorMessage, updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
     if (nextStatus === "issued") await tx.update(paymentOrders).set({ status: "invoiced", invoicedAt: new Date(), updatedAt: new Date() }).where(and(eq(paymentOrders.id, current.paymentOrderId), eq(paymentOrders.status, "paid")));
     await tx.update(intellyDteWebhookEvents).set({ processedAt: new Date() }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
     await tx.insert(auditEvents).values(buildAuditEvent({ actorType: "system", action: "invoice.webhook_updated", entityType: "invoice", entityId: invoice.id, metadata: { eventId, event, dteRecordId, tenantRut: effectiveTenantRut, status: nextStatus, evidenceStatus } }));

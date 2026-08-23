@@ -38,7 +38,7 @@ function decodeProviderXml(value: string): Uint8Array {
   return bytes;
 }
 
-function normalizeRut(value: string): string {
+export function normalizeRut(value: string): string {
   const compact = value.replace(/[^0-9kK]/g, "").toUpperCase();
   return compact.length > 1 ? `${compact.slice(0, -1)}-${compact.slice(-1)}` : compact;
 }

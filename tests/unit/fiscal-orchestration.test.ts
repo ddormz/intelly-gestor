@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "@/db";
 import { issueInvoice, refreshInvoiceStatus } from "@/features/billing/emission";
 import type { IntellyDteGateway } from "@/features/integrations/intellydte";
+import { renderFiscalPdf } from "@/features/billing/xml";
 
 vi.mock("@/db", () => ({ getDb: vi.fn() }));
 vi.mock("@/features/integrations/config-service", () => ({ getIntellyDteConfig: vi.fn(async () => ({ baseUrl: "https://dte.example", tenantApiKey: "ik_tenant", systemApiKey: "isk_system", tenantRut: "76123456-0", apiKey: "ik_tenant" })), getIntellyDteWebhookSecret: vi.fn() }));
@@ -16,20 +17,23 @@ function builder<T>(result: T) {
 
 function configuredDb(existing: unknown[], attempts: unknown[]) {
   const selects = [builder([{ id: "order-1", number: "OP-1", status: "paid", subtotal: "1000", total: "1190", taxTotal: "190", discountTotal: "0", notes: null, clientId: "client-1", clientTaxId: "12345678-5", clientName: "CLIENTE SPA", clientGiro: "Comercio", clientAddress: "Destino", clientCommune: "Providencia", clientCity: "Santiago", clientEmail: "client@example.com" }]), builder([{ description: "Servicio", quantity: "2", unitPrice: "500", subtotal: "1000", discountAmount: "0", taxRate: "19", taxAmount: "190", total: "1190", sortOrder: 0 }]), builder(existing), builder(attempts)];
+  const updates: Array<Record<string, unknown>> = [];
   const db = {
     select: vi.fn(() => selects.shift() ?? builder([])),
     insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
-    update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => undefined) })) })),
+    update: vi.fn(() => ({ set: vi.fn((value: Record<string, unknown>) => { updates.push(value); return { where: vi.fn(async () => undefined) }; }) })),
     transaction: vi.fn(async (callback: (tx: typeof db) => unknown) => callback(db)),
   };
   vi.mocked(getDb).mockReturnValue(db as never);
-  return db;
+  return { ...db, updates };
 }
 
 describe("fiscal emission orchestration", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-15T12:00:00.000Z"));
+    vi.mocked(renderFiscalPdf).mockReset();
+    vi.mocked(renderFiscalPdf).mockResolvedValue(new Uint8Array(Buffer.from("%PDF-fiscal")));
     process.env.DATABASE_URL = "mysql://user:pass@localhost:3306/app";
     process.env.INTELLYDTE_MODE = "http";
   });
@@ -72,6 +76,29 @@ describe("fiscal emission orchestration", () => {
 
     expect(result).toMatchObject({ kind: "issued", providerDocumentId: "dte-accepted-without-xml", folio: "43", siiStatus: "DOK" });
     expect(db.transaction).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the invoice issued but marks evidence failed when PDF reconstruction fails", async () => {
+    const db = configuredDb([], []);
+    vi.mocked(renderFiscalPdf).mockRejectedValueOnce(new Error("renderer failed"));
+    const gateway = {
+      issueInvoice: vi.fn(async () => ({
+        kind: "issued" as const,
+        providerDocumentId: "dte-pdf-failure",
+        folio: "42",
+        issuedAt: "2026-08-15T12:00:00.000Z",
+        signedXmlBase64: Buffer.from("signed").toString("base64"),
+        siiStatus: "ENQUEUED",
+      })),
+      getInvoiceStatus: vi.fn(),
+      health: vi.fn(),
+      lookupRut: vi.fn(),
+    } as unknown as IntellyDteGateway;
+
+    const result = await issueInvoice("order-1", "user-1", gateway);
+
+    expect(result.kind).toBe("issued");
+    expect(db.updates).toContainEqual(expect.objectContaining({ status: "issued", evidenceStatus: "failed" }));
   });
 
   it("reconciles an uncertain provider identifier before any second create call", async () => {
