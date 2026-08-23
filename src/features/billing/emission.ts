@@ -108,6 +108,25 @@ async function retryLocalPdf(invoiceId: string) {
   return storeReconstructedPdf(invoiceId, { dteType: document.type, folio: document.folio, rendererVersion: "fiscal-pdf-v2" }, pdf);
 }
 
+export async function regenerateInvoicePdf(invoiceId: string, userId: string, gateway?: IntellyDteGateway): Promise<InvoiceResult> {
+  const db = getDb();
+  const [invoice] = await db.select().from(invoices).where(eq(invoices.id, invoiceId)).limit(1).execute();
+  if (!invoice) throw new AppError("INVOICE_NOT_FOUND", "Factura no encontrada.", 404);
+  if (invoice.status !== "issued") throw new AppError("INVOICE_NOT_ISSUED", "La factura debe estar emitida para regenerar su PDF.", 409);
+  if (!invoice.signedXmlEvidenceId) return refreshInvoiceStatus(invoiceId, userId, gateway);
+
+  try {
+    const reconstructed = await retryLocalPdf(invoice.id);
+    await db.update(invoices).set({ reconstructedPdfEvidenceId: reconstructed.id, evidenceStatus: "complete", evidenceError: null, lastErrorCode: null, lastErrorMessage: null, updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
+    await db.insert(auditEvents).values(buildAuditEvent({ actorUserId: userId, actorType: "user", action: "invoice.pdf_reconstructed", entityType: "invoice", entityId: invoice.id, metadata: { providerDocumentId: invoice.providerDocumentId, folio: invoice.folio, manual: true } }));
+    return { kind: "issued", providerDocumentId: invoice.providerDocumentId ?? "", folio: invoice.folio ?? "", issuedAt: invoice.issuedAt?.toISOString() ?? new Date().toISOString(), trackId: invoice.trackId, siiStatus: invoice.siiStatus, siiGlosa: invoice.siiGlosa };
+  } catch (error) {
+    const safe = error instanceof AppError ? error : new AppError("PDF_RECONSTRUCTION_FAILED", "No se pudo reconstruir el PDF fiscal.", 500);
+    await db.update(invoices).set({ evidenceStatus: "failed", evidenceError: safe.message.slice(0, 300), lastErrorCode: safe.code, lastErrorMessage: safe.message.slice(0, 300), updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
+    throw safe;
+  }
+}
+
 function resultMessage(result: InvoiceResult): string {
   return result.kind === "rejected" ? result.safeMessage : result.kind === "pending" ? "Emisión pendiente de conciliación." : result.kind === "unavailable" ? result.safeMessage : "Factura emitida.";
 }
