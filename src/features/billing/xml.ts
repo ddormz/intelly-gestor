@@ -42,6 +42,27 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
 
+function firstNamedObject(value: unknown, name: string): Record<string, unknown> {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = firstNamedObject(item, name);
+      if (Object.keys(found).length) return found;
+    }
+    return {};
+  }
+  if (!value || typeof value !== "object") return {};
+  const record = value as Record<string, unknown>;
+  if (record[name] !== undefined) {
+    const candidate = Array.isArray(record[name]) ? record[name][0] : record[name];
+    return objectValue(candidate);
+  }
+  for (const child of Object.values(record)) {
+    const found = firstNamedObject(child, name);
+    if (Object.keys(found).length) return found;
+  }
+  return {};
+}
+
 function text(value: unknown, code: string): string {
   const raw = typeof value === "object" && value !== null && "#text" in value ? (value as Record<string, unknown>)["#text"] : value;
   if (typeof raw !== "string" && typeof raw !== "number") throw new FiscalXmlError(code);
@@ -84,8 +105,7 @@ export function parseSignedDteXml(xml: string): ParsedDteDocument {
   if (!xml.trim()) throw new FiscalXmlError("DTE_XML_EMPTY");
   let root: Record<string, unknown>;
   try { root = parser.parse(xml) as Record<string, unknown>; } catch { throw new FiscalXmlError("DTE_XML_INVALID"); }
-  const dte = objectValue(root.DTE ?? root["ns0:DTE"]);
-  const documento = objectValue(dte.Documento);
+  const documento = firstNamedObject(root, "Documento");
   if (!Object.keys(documento).length) throw new FiscalXmlError("DTE_XML_MISSING_DOCUMENTO");
   const encabezado = objectValue(documento.Encabezado);
   const idDoc = objectValue(encabezado.IdDoc);

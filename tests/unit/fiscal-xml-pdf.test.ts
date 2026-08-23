@@ -14,6 +14,18 @@ describe("signed DTE XML and local fiscal PDF", () => {
     expect(document.tedXml).toContain("<TED version=\"1.0\">");
   });
 
+  it("parses a signed EnvioDTE envelope like the one returned by IntellyDTE", async () => {
+    const dte = (await readFile(fixture, "utf8")).replace(/^<\?xml[^?]*\?>\s*/i, "");
+    const envelope = `<EnvioDTE xmlns="http://www.sii.cl/SiiDte" version="1.0"><SetDTE>${dte}</SetDTE></EnvioDTE>`;
+
+    const document = parseSignedDteXml(envelope);
+    const pdf = await renderFiscalPdf(document);
+
+    expect(document).toMatchObject({ type: "33", folio: 42, issuer: { rut: "76123456-7" }, receiver: { rut: "96543210-1" } });
+    expect(document.tedXml).toContain("<TED version=\"1.0\">");
+    expect(new TextDecoder().decode(pdf.slice(0, 4))).toBe("%PDF");
+  });
+
   it("renders PDF417 from the original TED and reconstructs a PDF with fiscal values", async () => {
     const document = parseSignedDteXml(await readFile(fixture, "utf8"));
     const pdf417 = await renderTedPdf417(document.tedXml);
