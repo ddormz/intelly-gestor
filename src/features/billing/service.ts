@@ -148,14 +148,13 @@ export async function sendInvoiceEmail(invoiceId: string, actorUserId: string, t
   }
 
   const xmlArtifact = await getFiscalEvidenceArtifact(invoiceId, "signed_xml");
-  const xmlString = xmlArtifact?.bytes ? Buffer.from(xmlArtifact.bytes).toString("latin1") : undefined;
 
   await sendInvoiceMessage({
     to: recipient,
     name: invoice.clientName,
     folio: Number(invoice.folio || 0),
     pdf: pdfArtifact.bytes,
-    xml: xmlString,
+    xml: xmlArtifact?.bytes,
   });
 
   await writeAudit({

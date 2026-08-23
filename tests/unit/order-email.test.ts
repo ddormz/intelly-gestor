@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { sendOrderMessage } from "@/features/email/mailer";
+import { sendInvoiceMessage, sendOrderMessage } from "@/features/email/mailer";
 import { orderEmail } from "@/features/email/order-email";
 import { createOrderPdfBytes } from "@/features/orders/pdf";
 
@@ -25,6 +25,16 @@ describe("order email delivery", () => {
       text: expect.stringContaining("https://app.example/orden/token"),
     }));
     expect(JSON.stringify(transport.sendMail.mock.calls[0]?.[0])).not.toContain("password");
+  });
+
+  it("sends the fiscal XML attachment as the original binary bytes", async () => {
+    transport.sendMail.mockClear();
+    const xml = new Uint8Array([60, 68, 84, 69, 62, 0xc3, 0xb3]);
+
+    await sendInvoiceMessage({ to: "cliente@example.com", name: "Cliente", folio: 42, pdf: new Uint8Array([1, 2, 3]), xml });
+
+    const options = transport.sendMail.mock.calls[0]?.[0] as { attachments: Array<{ content: Buffer }> };
+    expect(options.attachments[1]?.content).toEqual(Buffer.from(xml));
   });
 
   it("fails in Spanish when SMTP is not configured", async () => {

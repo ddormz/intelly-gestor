@@ -98,7 +98,7 @@ export async function sendInvoiceMessage(input: {
   name: string;
   folio: number;
   pdf: Uint8Array;
-  xml?: string;
+  xml?: Uint8Array;
 }): Promise<void> {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.to)) {
     throw new AppError("INVOICE_EMAIL_INVALID", "El correo del receptor no es válido.");
@@ -116,7 +116,7 @@ export async function sendInvoiceMessage(input: {
   if (input.xml) {
     attachments.push({
       filename: `DTE-33-F${input.folio}.xml`,
-      content: Buffer.from(input.xml, "latin1"),
+      content: Buffer.from(input.xml),
       contentType: "application/xml",
     });
   }
