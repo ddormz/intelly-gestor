@@ -23,7 +23,8 @@ describe("billing fiscal evidence UI", () => {
   it("renders an accepted state with an icon and keeps unavailable artifact actions visible", () => {
     const html = renderInvoice("issued");
 
-    expect(html).toContain('aria-label="Aceptado por el SII"');
+    expect(html).toContain('aria-label="Aceptado por SII"');
+    expect(html).not.toContain("Aceptado por el SII");
     expect(html).toContain("lucide-badge-check");
     expect(html).not.toContain(">Estado</th>");
     expect(html).toMatch(/aria-label="Descargar PDF fiscal"[^>]+aria-disabled="true"/);
@@ -32,6 +33,8 @@ describe("billing fiscal evidence UI", () => {
     expect(html).toContain('title="El PDF tributario aún se está generando."');
     expect(html).toContain('title="El XML firmado aún no está disponible."');
     expect(html).toContain("Reintentar archivos tributarios");
+    expect(html).toContain("Regenerar PDF tributario");
+    expect(renderInvoice("issued", true, true)).toContain("Regenerar PDF tributario");
   });
 
   it("uses distinct icons for pending, processing, and rejected states", () => {

@@ -36,6 +36,7 @@ import {
 import {
   importHistoricalInvoicesAction,
   issueInvoiceAction,
+  regenerateInvoicePdfAction,
   refreshInvoiceStatusAction,
   requestFoliosAction,
   sendInvoiceEmailAction,
@@ -73,7 +74,7 @@ function FiscalStatusIcon({ status, siiStatus, siiGlosa }: { status: string; sii
     : normalizedSiiStatus === "observado" || normalizedSiiStatus === "observed"
       ? { label: "Observado por el SII", className: "bg-amber-100 text-amber-700", icon: <AlertTriangle aria-hidden="true" size={14} /> }
       : status === "issued"
-        ? { label: "Aceptado por el SII", className: "bg-emerald-100 text-emerald-700", icon: <BadgeCheck aria-hidden="true" size={14} /> }
+        ? { label: "Aceptado por SII", className: "bg-emerald-100 text-emerald-700", icon: <BadgeCheck aria-hidden="true" size={14} /> }
         : status === "processing"
           ? { label: "En revisión por el SII", className: "bg-amber-100 text-amber-700", icon: <Clock3 aria-hidden="true" size={14} /> }
           : { label: "Enviado al SII", className: "bg-blue-100 text-blue-700", icon: <ArrowRight aria-hidden="true" size={14} /> };
@@ -492,6 +493,20 @@ export function BillingManager({
                           description={item.status === "issued" ? "Se reconstruirá el PDF desde el XML guardado o se consultará IntellyDTE si el XML aún no está disponible." : "Se consultará IntellyDTE sin volver a emitir la factura."}
                           submitLabel={item.status === "issued" ? "Reintentar archivos" : "Consultar estado"}
                           action={refreshInvoiceStatusAction}
+                        >
+                          {() => <input type="hidden" name="invoiceId" value={item.id} />}
+                        </ActionModal>
+                      ) : null}
+                      {item.status === "issued" ? (
+                        <ActionModal
+                          iconOnly
+                          triggerLabel="Regenerar PDF tributario"
+                          triggerIcon={<FileDown size={17} />}
+                          title="Regenerar PDF tributario"
+                          description="Se reconstruirá una nueva versión del PDF usando el XML firmado, sin cambiar el folio."
+                          submitLabel="Regenerar PDF"
+                          pendingLabel="Regenerando PDF…"
+                          action={regenerateInvoicePdfAction}
                         >
                           {() => <input type="hidden" name="invoiceId" value={item.id} />}
                         </ActionModal>
