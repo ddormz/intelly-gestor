@@ -1,6 +1,5 @@
 import bwipjs from "bwip-js/node";
 import { XMLParser } from "fast-xml-parser";
-import { renderFiscalPdf } from "./fiscal-pdf";
 
 export type ParsedDteDetail = {
   lineNumber: number;
