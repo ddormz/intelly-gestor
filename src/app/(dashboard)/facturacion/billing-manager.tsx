@@ -42,6 +42,7 @@ import {
   sendInvoiceEmailAction,
   syncFoliosAction,
 } from "@/features/billing/actions";
+import { isSiiAcceptedStatus } from "@/features/integrations/sii-status";
 import { formatClpAmount } from "@/lib/money";
 import type { PageQuery } from "@/lib/list-query";
 import type { FolioStatusItem } from "@/features/integrations/intellydte-contract";
@@ -69,13 +70,14 @@ type ReadyOrder = {
 
 function FiscalStatusIcon({ status, siiStatus, siiGlosa }: { status: string; siiStatus: string | null; siiGlosa: string | null }) {
   const normalizedSiiStatus = siiStatus?.trim().toLowerCase();
+  const siiSubmissionPending = normalizedSiiStatus === "enqueued" || normalizedSiiStatus === "emp" || normalizedSiiStatus === "submitted";
   const presentation = status === "rejected"
     ? { label: "Rechazado por el SII", className: "bg-red-100 text-red-700", icon: <CircleX aria-hidden="true" size={14} /> }
     : normalizedSiiStatus === "observado" || normalizedSiiStatus === "observed"
       ? { label: "Observado por el SII", className: "bg-amber-100 text-amber-700", icon: <AlertTriangle aria-hidden="true" size={14} /> }
-      : status === "issued"
+      : isSiiAcceptedStatus(siiStatus)
         ? { label: "Aceptado por SII", className: "bg-emerald-100 text-emerald-700", icon: <BadgeCheck aria-hidden="true" size={14} /> }
-        : status === "processing"
+        : status === "processing" && !siiSubmissionPending
           ? { label: "En revisión por el SII", className: "bg-amber-100 text-amber-700", icon: <Clock3 aria-hidden="true" size={14} /> }
           : { label: "Enviado al SII", className: "bg-blue-100 text-blue-700", icon: <ArrowRight aria-hidden="true" size={14} /> };
   const title = siiGlosa ? `${presentation.label}: ${siiGlosa}` : presentation.label;

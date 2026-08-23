@@ -5,6 +5,7 @@ import { renderFiscalPdf } from "@/features/billing/xml";
 
 const mocks = vi.hoisted(() => ({
   getFiscalEvidenceArtifact: vi.fn(),
+  storeSignedXmlBytes: vi.fn(),
   parseSignedDteXmlBytes: vi.fn(),
   storeReconstructedPdf: vi.fn(),
   buildAuditEvent: vi.fn(),
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/db", () => ({ getDb: vi.fn() }));
 vi.mock("@/features/billing/evidence", () => ({
   getFiscalEvidenceArtifact: mocks.getFiscalEvidenceArtifact,
+  storeSignedXmlBytes: mocks.storeSignedXmlBytes,
   storeReconstructedPdf: mocks.storeReconstructedPdf,
 }));
 vi.mock("@/features/billing/xml", () => ({
@@ -70,6 +72,7 @@ describe("manual fiscal PDF regeneration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getFiscalEvidenceArtifact.mockResolvedValue({ id: "xml-id", bytes: new Uint8Array(Buffer.from("signed-xml")) });
+    mocks.storeSignedXmlBytes.mockResolvedValue({ id: "new-xml-id" });
     mocks.parseSignedDteXmlBytes.mockReturnValue(parsedDocument);
     vi.mocked(renderFiscalPdf).mockResolvedValue(new Uint8Array(Buffer.from("%PDF-new")));
     mocks.storeReconstructedPdf.mockResolvedValue({ id: "new-pdf-id" });
@@ -112,7 +115,9 @@ describe("manual fiscal PDF regeneration", () => {
     const updates: Array<Record<string, unknown>> = [];
     const selects = [
       chain([{ ...invoice, signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null }]),
+      chain([]),
       chain([{ ...invoice, signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null }]),
+      chain([]),
       chain([{ subtotal: "1000", total: "1190", taxTotal: "190", discountTotal: "0", notes: null, clientTaxId: "12345678-5", clientName: "CLIENTE SPA", clientGiro: "Comercio", clientAddress: "Destino", clientCommune: "Providencia", clientCity: "Santiago", clientEmail: "client@example.com" }]),
       chain([{ description: "Servicio", quantity: "2", unitPrice: "500", subtotal: "1000", discountAmount: "0", taxRate: "19", taxAmount: "190", total: "1190", sortOrder: 0 }]),
       chain([]),
@@ -129,5 +134,37 @@ describe("manual fiscal PDF regeneration", () => {
 
     expect(result).toMatchObject({ kind: "pending", providerDocumentId: "dte-1" });
     expect(gateway.getInvoiceStatus).toHaveBeenCalledWith("dte-1");
+  });
+
+  it("rebuilds directly from the stored emission response before querying the status endpoint", async () => {
+    const signedXmlBase64 = Buffer.from("signed-xml").toString("base64");
+    const pendingInvoice = { ...invoice, status: "processing", signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null, evidenceStatus: "pending", tenantRut: null, siiStatus: "ENQUEUED" };
+    const attempt = {
+      attemptNumber: 1,
+      providerDocumentId: "dte-1",
+      responseBody: { data: { dteRecordId: "dte-1", tipoDte: "33", folio: 42, siiStatus: "ENQUEUED", printPayload: { signedXmlBase64 } } },
+    };
+    const selects = [
+      chain([pendingInvoice]),
+      chain([attempt]),
+      chain([{ subtotal: "1000", total: "1190", taxTotal: "190", discountTotal: "0", notes: null, clientTaxId: "12345678-5", clientName: "CLIENTE SPA", clientGiro: "Comercio", clientAddress: "Destino", clientCommune: "Providencia", clientCity: "Santiago", clientEmail: "client@example.com" }]),
+      chain([{ description: "Servicio", quantity: "2", unitPrice: "500", subtotal: "1000", discountAmount: "0", taxRate: "19", taxAmount: "190", total: "1190", sortOrder: 0 }]),
+    ];
+    const updates: Array<Record<string, unknown>> = [];
+    const db = {
+      select: vi.fn(() => selects.shift() ?? chain([])),
+      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      update: vi.fn(() => ({ set: vi.fn((value: Record<string, unknown>) => { updates.push(value); return { where: vi.fn(async () => undefined) }; }) })),
+    };
+    vi.mocked(getDb).mockReturnValue(db as never);
+    const gateway = { getInvoiceStatus: vi.fn() };
+
+    const result = await regenerateInvoicePdf("invoice-id", "user-id", gateway as never);
+
+    expect(result).toMatchObject({ kind: "issued", providerDocumentId: "dte-1", folio: "42", siiStatus: "ENQUEUED" });
+    expect(gateway.getInvoiceStatus).not.toHaveBeenCalled();
+    expect(mocks.storeSignedXmlBytes).toHaveBeenCalledWith("invoice-id", expect.objectContaining({ dteType: "33", folio: 42 }), expect.any(Uint8Array));
+    expect(mocks.storeReconstructedPdf).toHaveBeenCalledWith("invoice-id", expect.objectContaining({ dteType: "33", folio: 42 }), expect.any(Uint8Array));
+    expect(updates).toContainEqual(expect.objectContaining({ reconstructedPdfEvidenceId: "new-pdf-id", evidenceStatus: "complete" }));
   });
 });

@@ -6,9 +6,9 @@ import { IconButton } from "@/components/ui/icon-button";
 
 const query = { page: 1, pageSize: 20 };
 
-function renderInvoice(status: "pending" | "processing" | "issued" | "rejected", hasPdf = false, hasXml = false) {
+function renderInvoice(status: "pending" | "processing" | "issued" | "rejected", hasPdf = false, hasXml = false, siiStatus: string | null | undefined = status === "issued" ? "DOK" : null) {
   return renderToStaticMarkup(createElement(BillingManager, {
-    items: [{ id: "invoice-1", orderNumber: "OP-1", clientName: "Cliente", clientEmail: "cliente@example.test", total: "1190", status, folio: "22", siiStatus: status === "issued" ? "DOK" : null, siiGlosa: null, hasPdf, hasXml }],
+    items: [{ id: "invoice-1", orderNumber: "OP-1", clientName: "Cliente", clientEmail: "cliente@example.test", total: "1190", status, folio: "22", siiStatus, siiGlosa: null, hasPdf, hasXml }],
     ready: [],
     canImport: false,
     query,
@@ -34,6 +34,14 @@ describe("billing fiscal evidence UI", () => {
     expect(html).toContain("Reintentar archivos tributarios");
     expect(html).toContain("Regenerar PDF tributario");
     expect(renderInvoice("issued", true, true)).toContain("Regenerar PDF tributario");
+  });
+
+  it("does not show SII acceptance before the provider confirms it", () => {
+    const html = renderInvoice("issued", true, true, "ENQUEUED");
+
+    expect(html).not.toContain('aria-label="Aceptado por SII"');
+    expect(html).toContain('aria-label="Enviado al SII"');
+    expect(renderInvoice("processing", true, true, "ENQUEUED")).toContain('aria-label="Enviado al SII"');
   });
 
   it("keeps the PDF action available when XML exists so generation is immediate", () => {

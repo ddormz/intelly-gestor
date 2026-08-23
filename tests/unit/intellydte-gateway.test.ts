@@ -75,6 +75,14 @@ describe("typed IntellyDTE gateway", () => {
     expect(result).toMatchObject({ kind: "issued", providerDocumentId: "dte-1", trackId: "track-1", siiStatus: "ACEPTADO" });
   });
 
+  it("keeps an enqueued status pending when the status endpoint has not confirmed SII acceptance", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ success: true, data: { dteRecordId: "dte-enqueued", folio: 44, siiStatus: "ENQUEUED" } })));
+
+    const result = await new IntellyDteHttpGateway({ baseUrl: "https://dte.example", tenantApiKey: "ik_tenant", systemApiKey: "isk_system", tenantRut: "76123456-7", emissionMode: "async", timeoutMs: 1000 }).getInvoiceStatus("dte-enqueued");
+
+    expect(result).toMatchObject({ kind: "pending", providerDocumentId: "dte-enqueued", folio: "44", siiStatus: "ENQUEUED", providerCode: "SII_STATUS_UNRESOLVED" });
+  });
+
   it("probes the provider root health endpoint and classifies idempotency-in-progress as pending", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(response({ success: true }, 200)).mockResolvedValueOnce(response({ error: { code: "IDEMPOTENCY_IN_PROGRESS", message: "in progress" } }, 409));
     vi.stubGlobal("fetch", fetchMock);

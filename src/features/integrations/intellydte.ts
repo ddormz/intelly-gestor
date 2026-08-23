@@ -12,6 +12,7 @@ import {
   type RequestFoliosCommand,
   type RequestFoliosResult,
 } from "./intellydte-contract";
+import { isSiiAcceptedStatus } from "./sii-status";
 
 export type IssueInvoiceCommand = {
   idempotencyKey: string;
@@ -57,14 +58,17 @@ function providerStatusReview(status: string | null | undefined): boolean {
 }
 
 function providerStatusAccepted(status: string | null | undefined): boolean {
-  return Boolean(status && /^(?:DOK|ACCEPTED|ACEPTADO)$/.test(status.trim().toUpperCase()));
+  return isSiiAcceptedStatus(status);
 }
 
 function dataResult(data: NormalizedProviderData, fallbackId?: string, requireEvidence = true, body?: ProviderBody): InvoiceResult {
   const providerDocumentId = data.dteRecordId ?? fallbackId;
   if (providerStatusRejected(data.siiStatus)) return { kind: "rejected", code: "SII_REJECTED", safeMessage: data.siiGlosa || "El SII rechazó el documento.", retryable: false, providerDocumentId, providerBody: body };
   if (providerStatusReview(data.siiStatus)) return { kind: "pending", providerDocumentId, folio: data.folio, trackId: data.trackId, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, providerCode: "SII_REVIEW_REQUIRED", providerBody: body };
-  if (providerDocumentId && data.folio && (!requireEvidence || data.printPayload?.signedXmlBase64)) return { kind: "issued", providerDocumentId, folio: data.folio, tipoDte: data.tipoDte, issuedAt: data.issuedAt ?? new Date().toISOString(), trackId: data.trackId, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, ...(data.printPayload?.signedXmlBase64 ? { signedXmlBase64: data.printPayload.signedXmlBase64 } : {}), printPayload: data.printPayload, providerBody: body };
+  if (providerDocumentId && data.folio && (!requireEvidence || data.printPayload?.signedXmlBase64)) {
+    if (!requireEvidence && !providerStatusAccepted(data.siiStatus)) return { kind: "pending", providerDocumentId, folio: data.folio, trackId: data.trackId, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, providerCode: "SII_STATUS_UNRESOLVED", providerBody: body };
+    return { kind: "issued", providerDocumentId, folio: data.folio, tipoDte: data.tipoDte, issuedAt: data.issuedAt ?? new Date().toISOString(), trackId: data.trackId, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, ...(data.printPayload?.signedXmlBase64 ? { signedXmlBase64: data.printPayload.signedXmlBase64 } : {}), printPayload: data.printPayload, providerBody: body };
+  }
   if (!requireEvidence && data.siiStatus && !providerStatusAccepted(data.siiStatus)) return { kind: "pending", providerDocumentId, folio: data.folio, trackId: data.trackId, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, providerCode: "SII_STATUS_UNRESOLVED", providerBody: body };
   if (providerDocumentId || data.folio) return { kind: "pending", providerDocumentId, folio: data.folio, trackId: data.trackId, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, providerCode: "PROVIDER_EVIDENCE_PENDING", providerBody: body };
   return { kind: "unavailable", code: "INTELLYDTE_INVALID_RESPONSE", safeMessage: "IntellyDTE entregó una respuesta incompleta.", retryable: true, providerBody: body };

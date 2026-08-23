@@ -100,6 +100,29 @@ describe("invoice evidence orchestration", () => {
     expect(mocks.renderFiscalPdf).toHaveBeenCalledWith(parsedDocument);
   });
 
+  it("accepts a data URL or wrapped base64 response from the provider", async () => {
+    const result = await materializeInvoiceEvidence({
+      invoiceId: "invoice-101",
+      result: { ...issuedResult, signedXmlBase64: `data:application/xml;base64,\n${issuedResult.signedXmlBase64}` },
+      payload,
+      expectedIssuerRut: "76123456-7",
+    });
+
+    expect(result).toMatchObject({ status: "complete", signedXmlEvidenceId: "xml-evidence-101", reconstructedPdfEvidenceId: "pdf-evidence-101" });
+  });
+
+  it("uses the signed XML nested in printPayload when the normalized field is absent", async () => {
+    const signedXmlBase64 = issuedResult.signedXmlBase64!;
+    const result = await materializeInvoiceEvidence({
+      invoiceId: "invoice-101",
+      result: { ...issuedResult, signedXmlBase64: undefined, printPayload: { signedXmlBase64 } },
+      payload,
+      expectedIssuerRut: "76123456-7",
+    });
+
+    expect(result).toMatchObject({ status: "complete", signedXmlEvidenceId: "xml-evidence-101", reconstructedPdfEvidenceId: "pdf-evidence-101" });
+  });
+
   it("keeps the XML id and reports a retryable PDF failure", async () => {
     mocks.renderFiscalPdf.mockRejectedValueOnce(new Error("renderer failed"));
 

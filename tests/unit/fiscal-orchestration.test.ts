@@ -42,7 +42,7 @@ describe("fiscal emission orchestration", () => {
     vi.useRealTimers();
   });
 
-  it("creates one attempt and materializes both evidence artifacts for an issued provider response", async () => {
+  it("materializes the PDF immediately but waits for SII confirmation before issuing locally", async () => {
     const db = configuredDb([], []);
     const issue = vi.fn(async () => ({ kind: "issued" as const, providerDocumentId: "dte-1", folio: "42", issuedAt: "2026-08-15T12:00:00.000Z", signedXmlBase64: Buffer.from("signed").toString("base64"), siiStatus: "ENQUEUED" }));
     const gateway = { issueInvoice: issue, getInvoiceStatus: vi.fn(), health: vi.fn(), lookupRut: vi.fn() } as unknown as IntellyDteGateway;
@@ -54,6 +54,8 @@ describe("fiscal emission orchestration", () => {
     const inserted = db.insert.mock.calls.map(([table]) => table);
     expect(inserted.length).toBeGreaterThanOrEqual(2);
     expect(gateway.getInvoiceStatus).not.toHaveBeenCalled();
+    expect(db.updates).toContainEqual(expect.objectContaining({ status: "processing", evidenceStatus: "complete" }));
+    expect(db.updates.some((value) => value.invoicedAt)).toBe(false);
   });
 
   it("keeps an SII-accepted invoice issued when the signed XML is still pending", async () => {
@@ -98,7 +100,7 @@ describe("fiscal emission orchestration", () => {
     const result = await issueInvoice("order-1", "user-1", gateway);
 
     expect(result.kind).toBe("issued");
-    expect(db.updates).toContainEqual(expect.objectContaining({ status: "issued", evidenceStatus: "failed" }));
+    expect(db.updates).toContainEqual(expect.objectContaining({ status: "processing", evidenceStatus: "failed" }));
   });
 
   it("reconciles an uncertain provider identifier before any second create call", async () => {

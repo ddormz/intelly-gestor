@@ -30,10 +30,11 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 function decodeProviderXml(value: string): Uint8Array {
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(value) || value.length % 4 === 1) {
+  const normalized = value.trim().replace(/^data:[^;,]+;base64,/i, "").replace(/\s+/g, "");
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) || normalized.length % 4 === 1) {
     throw new AppError("SIGNED_XML_INVALID", "El XML firmado de IntellyDTE no es base64 válido.", 502);
   }
-  const bytes = new Uint8Array(Buffer.from(value, "base64"));
+  const bytes = new Uint8Array(Buffer.from(normalized, "base64"));
   if (!bytes.byteLength) throw new AppError("SIGNED_XML_INVALID", "El XML firmado de IntellyDTE está vacío.", 502);
   return bytes;
 }
@@ -91,7 +92,8 @@ function failedResult(error: unknown, fallbackCode: string, fallbackMessage: str
 }
 
 export async function materializeInvoiceEvidence(input: MaterializeInvoiceEvidenceInput): Promise<EvidenceMaterializationResult> {
-  if (!input.result.signedXmlBase64) {
+  const signedXmlBase64 = input.result.signedXmlBase64 ?? input.result.printPayload?.signedXmlBase64;
+  if (!signedXmlBase64) {
     return {
       status: "pending",
       signedXmlEvidenceId: null,
@@ -104,7 +106,7 @@ export async function materializeInvoiceEvidence(input: MaterializeInvoiceEviden
   let bytes: Uint8Array;
   let document: ParsedDteDocument;
   try {
-    bytes = decodeProviderXml(input.result.signedXmlBase64);
+    bytes = decodeProviderXml(signedXmlBase64);
     document = parseSignedDteXmlBytes(bytes);
     // The signed DTE is the provider's fiscal source of truth. Bevox follows
     // the same rule: only document identity is guarded here; provider-side

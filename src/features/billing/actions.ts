@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireUser } from "@/features/auth/session";
 import { getIntellyDteGateway } from "@/features/integrations/intellydte";
+import { isSiiAcceptedStatus } from "@/features/integrations/sii-status";
 import { writeAudit } from "@/features/audit/service";
 import { AppError, safeError } from "@/lib/errors";
 import { enforceSameOrigin } from "@/lib/security";
@@ -20,7 +21,7 @@ export async function issueInvoiceAction(_: ActionState, formData: FormData): Pr
     const user = await requireUser();
     const result = await issueInvoice(String(formData.get("orderId")), user.userId);
     revalidatePath("/facturacion"); revalidatePath("/");
-    return { status: "success", message: result.kind === "issued" ? "Factura aceptada por el SII." : "Solicitud de facturación registrada." };
+    return { status: "success", message: result.kind === "issued" ? isSiiAcceptedStatus(result.siiStatus) ? "Factura aceptada por el SII." : "Factura emitida; esperando confirmación del SII." : "Solicitud de facturación registrada." };
   } catch (error) {
     if (error instanceof AppError) return { status: "error", message: error.message };
     return { status: "error", message: safeError(error).message };
@@ -46,7 +47,7 @@ export async function refreshInvoiceStatusAction(_: ActionState, formData: FormD
     const user = await requireUser();
     const result = await refreshInvoiceStatus(String(formData.get("invoiceId")), user.userId);
     revalidatePath("/facturacion");
-    return { status: "success", message: result.kind === "issued" ? "Estado conciliado: factura emitida." : "Estado consultado; la factura sigue pendiente." };
+    return { status: "success", message: result.kind === "issued" ? isSiiAcceptedStatus(result.siiStatus) ? "Estado conciliado: factura aceptada por el SII." : "Documento emitido; esperando confirmación del SII." : "Estado consultado; la factura sigue pendiente." };
   } catch (error) {
     return { status: "error", message: safeError(error).message };
   }
