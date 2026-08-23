@@ -59,9 +59,12 @@ export async function listInvoices(query?: PageQuery): Promise<InvoiceListItem[]
   if (typeof query.to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(query.to)) conditions.push(lte(invoices.createdAt, new Date(`${query.to}T23:59:59.999Z`)));
   const where = conditions.length ? and(...conditions) : undefined;
   const itemsQuery = where ? base.where(where) : base;
+  const countBase = query.q
+    ? db.select({ value: count() }).from(invoices).innerJoin(paymentOrders, eq(paymentOrders.id, invoices.paymentOrderId)).innerJoin(clients, eq(clients.id, paymentOrders.clientId))
+    : db.select({ value: count() }).from(invoices);
   const [items, [{ value: total }]] = await Promise.all([
     itemsQuery.orderBy(desc(invoices.createdAt), desc(invoices.id)).limit(query.pageSize).offset((query.page - 1) * query.pageSize).execute(),
-    (where ? db.select({ value: count() }).from(invoices).innerJoin(paymentOrders, eq(paymentOrders.id, invoices.paymentOrderId)).innerJoin(clients, eq(clients.id, paymentOrders.clientId)).where(where) : db.select({ value: count() }).from(invoices).innerJoin(paymentOrders, eq(paymentOrders.id, invoices.paymentOrderId)).innerJoin(clients, eq(clients.id, paymentOrders.clientId))).execute(),
+    (where ? countBase.where(where) : countBase).execute(),
   ]);
   return { items, page: query.page, pageSize: query.pageSize, total: Number(total) };
 }

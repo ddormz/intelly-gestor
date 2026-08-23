@@ -21,14 +21,14 @@ type QueryBuilder = {
 };
 
 function fakeDb(...results: unknown[]) {
-  const calls: Array<{ limit?: number; offset?: number; where?: unknown }> = [];
+  const calls: Array<{ limit?: number; offset?: number; where?: unknown; joins?: number }> = [];
   const db = {
     select: vi.fn(() => {
       const call: { limit?: number; offset?: number } = {};
       calls.push(call);
       const builder: QueryBuilder = {
         from: () => builder,
-        innerJoin: () => builder,
+      innerJoin: () => { call.joins = (call.joins ?? 0) + 1; return builder; },
         where: (condition) => { call.where = condition; return builder; },
         orderBy: () => builder,
         limit: (value) => { call.limit = value; return builder; },
@@ -66,6 +66,15 @@ describe("management list services", () => {
     await listInvoices(parsePageQuery({ tab: "processing" }));
 
     expect(calls.some((call) => call.where)).toBe(true);
+  });
+
+  it("counts invoices without repeating unrelated joins when no text search is active", async () => {
+    const { calls } = fakeDb([{ id: "f1" }], [{ value: 1 }]);
+
+    await listInvoices(parsePageQuery({ tab: "all" }));
+
+    const countCall = calls.find((call) => call.limit === undefined && call.offset === undefined);
+    expect(countCall?.joins ?? 0).toBe(0);
   });
 
   it.each([
