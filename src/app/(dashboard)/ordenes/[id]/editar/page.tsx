@@ -21,7 +21,7 @@ export default async function EditOrderPage({ params }: { params: Promise<{ id: 
     discountReason: order.discountReason,
     dueAt: order.dueAt?.toISOString().slice(0, 10) ?? "",
     notes: order.notes,
-    lines: order.lines,
+    lines: order.lines.map((line) => ({ id: line.id, catalogItemId: line.catalogItemId, code: line.code, description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, taxRate: line.taxRate })),
   };
   return <OrderPos action={updateOrderFromCartAction} initial={initial} />;
 }
