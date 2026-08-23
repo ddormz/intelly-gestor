@@ -68,7 +68,7 @@ type ReadyOrder = {
   total: string;
 };
 
-function FiscalStatusIcon({ status, siiStatus, siiGlosa }: { status: string; siiStatus: string | null; siiGlosa: string | null }) {
+function FiscalStatusIcon({ status, siiStatus }: { status: string; siiStatus: string | null }) {
   const normalizedSiiStatus = siiStatus?.trim().toLowerCase();
   const siiSubmissionPending = normalizedSiiStatus === "enqueued" || normalizedSiiStatus === "emp" || normalizedSiiStatus === "submitted";
   const presentation = status === "rejected"
@@ -80,8 +80,7 @@ function FiscalStatusIcon({ status, siiStatus, siiGlosa }: { status: string; sii
         : status === "processing" && !siiSubmissionPending
           ? { label: "En revisión por el SII", className: "bg-amber-100 text-amber-700", icon: <Clock3 aria-hidden="true" size={14} /> }
           : { label: "Enviado al SII", className: "bg-blue-100 text-blue-700", icon: <ArrowRight aria-hidden="true" size={14} /> };
-  const title = siiGlosa ? `${presentation.label}: ${siiGlosa}` : presentation.label;
-  return <span className={`inline-flex items-center justify-center rounded-full p-1 leading-none ${presentation.className}`} title={title} aria-label={title}>{presentation.icon}</span>;
+  return <span className={`inline-flex items-center justify-center rounded-full p-1 leading-none ${presentation.className}`} title={presentation.label} aria-label={presentation.label}>{presentation.icon}</span>;
 }
 
 function DirectSyncFoliosButton({ onResult }: { onResult: (res: { ok: boolean; message: string }) => void }) {
@@ -477,7 +476,7 @@ export function BillingManager({
                   </td>
                   <td data-label="Folio">
                     <span className="inline-flex items-center gap-2">
-                      <FiscalStatusIcon status={item.status} siiStatus={item.siiStatus} siiGlosa={item.siiGlosa} />
+                      <FiscalStatusIcon status={item.status} siiStatus={item.siiStatus} />
                       <span>{item.folio ?? "—"}</span>
                     </span>
                   </td>
@@ -499,7 +498,7 @@ export function BillingManager({
                           {() => <input type="hidden" name="invoiceId" value={item.id} />}
                         </ActionModal>
                       ) : null}
-                      {item.status === "issued" ? (
+                      {item.status === "issued" && !item.hasPdf ? (
                         <ActionModal
                           iconOnly
                           triggerLabel="Regenerar PDF tributario"

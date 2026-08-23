@@ -6,9 +6,9 @@ import { IconButton } from "@/components/ui/icon-button";
 
 const query = { page: 1, pageSize: 20 };
 
-function renderInvoice(status: "pending" | "processing" | "issued" | "rejected", hasPdf = false, hasXml = false, siiStatus: string | null | undefined = status === "issued" ? "DOK" : null) {
+function renderInvoice(status: "pending" | "processing" | "issued" | "rejected", hasPdf = false, hasXml = false, siiStatus: string | null | undefined = status === "issued" ? "DOK" : null, siiGlosa: string | null = null) {
   return renderToStaticMarkup(createElement(BillingManager, {
-    items: [{ id: "invoice-1", orderNumber: "OP-1", clientName: "Cliente", clientEmail: "cliente@example.test", total: "1190", status, folio: "22", siiStatus, siiGlosa: null, hasPdf, hasXml }],
+    items: [{ id: "invoice-1", orderNumber: "OP-1", clientName: "Cliente", clientEmail: "cliente@example.test", total: "1190", status, folio: "22", siiStatus, siiGlosa, hasPdf, hasXml }],
     ready: [],
     canImport: false,
     query,
@@ -33,7 +33,14 @@ describe("billing fiscal evidence UI", () => {
     expect(html).toContain('title="El XML firmado aún no está disponible."');
     expect(html).toContain("Reintentar archivos tributarios");
     expect(html).toContain("Regenerar PDF tributario");
-    expect(renderInvoice("issued", true, true)).toContain("Regenerar PDF tributario");
+    expect(renderInvoice("issued", true, true)).not.toContain("Regenerar PDF tributario");
+  });
+
+  it("keeps the status icon label independent from the provider glosa", () => {
+    const html = renderInvoice("issued", true, true, "DOK", "Aceptado por el SII con EPR");
+
+    expect(html).toContain('aria-label="Aceptado por SII"');
+    expect(html).not.toContain("Aceptado por el SII con EPR");
   });
 
   it("does not show SII acceptance before the provider confirms it", () => {
