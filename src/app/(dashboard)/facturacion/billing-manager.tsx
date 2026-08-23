@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  ArrowRight,
+  AlertTriangle,
   BadgeCheck,
   CircleX,
   Clock3,
@@ -11,7 +13,6 @@ import {
   FileMinus,
   FileText,
   Mail,
-  LoaderCircle,
   PlusCircle,
   Receipt,
   ReceiptText,
@@ -65,15 +66,19 @@ type ReadyOrder = {
   total: string;
 };
 
-function FiscalStatusBadge({ status }: { status: string }) {
-  const presentation = status === "issued"
-    ? { label: "Aceptada", className: "status-success", icon: <BadgeCheck aria-hidden="true" size={14} /> }
-    : status === "processing"
-      ? { label: "Procesando", className: "status-info", icon: <LoaderCircle aria-hidden="true" className="animate-spin" size={14} /> }
-      : status === "rejected"
-        ? { label: "Rechazada", className: "status-danger", icon: <CircleX aria-hidden="true" size={14} /> }
-        : { label: "Pendiente", className: "status-warning", icon: <Clock3 aria-hidden="true" size={14} /> };
-  return <span className={`status-badge inline-flex items-center gap-1.5 ${presentation.className}`} aria-label={`Estado: ${presentation.label}`}>{presentation.icon}{presentation.label}</span>;
+function FiscalStatusIcon({ status, siiStatus, siiGlosa }: { status: string; siiStatus: string | null; siiGlosa: string | null }) {
+  const normalizedSiiStatus = siiStatus?.trim().toLowerCase();
+  const presentation = status === "rejected"
+    ? { label: "Rechazado por el SII", className: "bg-red-100 text-red-700", icon: <CircleX aria-hidden="true" size={14} /> }
+    : normalizedSiiStatus === "observado" || normalizedSiiStatus === "observed"
+      ? { label: "Observado por el SII", className: "bg-amber-100 text-amber-700", icon: <AlertTriangle aria-hidden="true" size={14} /> }
+      : status === "issued"
+        ? { label: "Aceptado por el SII", className: "bg-emerald-100 text-emerald-700", icon: <BadgeCheck aria-hidden="true" size={14} /> }
+        : status === "processing"
+          ? { label: "En revisión por el SII", className: "bg-amber-100 text-amber-700", icon: <Clock3 aria-hidden="true" size={14} /> }
+          : { label: "Enviado al SII", className: "bg-blue-100 text-blue-700", icon: <ArrowRight aria-hidden="true" size={14} /> };
+  const title = siiGlosa ? `${presentation.label}: ${siiGlosa}` : presentation.label;
+  return <span className={`inline-flex items-center justify-center rounded-full p-1 leading-none ${presentation.className}`} title={title} aria-label={title}>{presentation.icon}</span>;
 }
 
 function DirectSyncFoliosButton({ onResult }: { onResult: (res: { ok: boolean; message: string }) => void }) {
@@ -209,6 +214,79 @@ function RequestFoliosFields({
   );
 }
 
+function FolioStatusSkeleton() {
+  return (
+    <section aria-label="Cargando folios" aria-busy="true" className="grid gap-4 sm:grid-cols-3">
+      {Array.from({ length: 3 }, (_, index) => (
+        <Card key={index} className="brand-card p-5 animate-pulse" aria-hidden="true">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <div className="size-10 rounded-xl bg-[var(--color-muted)]" />
+              <div className="space-y-2">
+                <div className="h-3 w-28 rounded bg-[var(--color-muted)]" />
+                <div className="h-2.5 w-14 rounded bg-[var(--color-muted)]" />
+              </div>
+            </div>
+            <div className="h-5 w-16 rounded-full bg-[var(--color-muted)]" />
+          </div>
+          <div className="mt-5 h-3 w-full rounded bg-[var(--color-muted)]" />
+        </Card>
+      ))}
+    </section>
+  );
+}
+
+function FolioStatusPanel({ refreshKey }: { refreshKey: number }) {
+  const [state, setState] = useState<{ status: "loading" | "ready" | "error"; folios: FolioStatusItem[] }>({ status: "loading", folios: [] });
+  const [retryKey, setRetryKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: "loading", folios: [] });
+    fetch("/api/billing/folios", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("No se pudieron cargar los folios.");
+        const body = await response.json() as { folios?: FolioStatusItem[] };
+        if (!cancelled) setState({ status: "ready", folios: Array.isArray(body.folios) ? body.folios : [] });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ status: "error", folios: [] });
+      });
+    return () => { cancelled = true; };
+  }, [refreshKey, retryKey]);
+
+  if (state.status === "loading") return <FolioStatusSkeleton />;
+  if (state.status === "error") {
+    return <Alert tone="error"><div className="flex items-center justify-between gap-4"><span className="text-sm font-semibold">No se pudieron cargar los folios CAF.</span><button type="button" className="text-xs font-bold underline" onClick={() => setRetryKey((value) => value + 1)}>Reintentar</button></div></Alert>;
+  }
+
+  return (
+    <section aria-label="Folios CAF" className="grid gap-4 sm:grid-cols-3">
+      {state.folios.map((folio) => {
+        const icon = folio.tipoDte === 33 ? <FileCheck size={20} /> : folio.tipoDte === 39 ? <Receipt size={20} /> : <FileMinus size={20} />;
+        const badgeStatus = folio.disponibles > 10 ? "paid" : folio.disponibles > 0 ? "pending" : "rejected";
+        return (
+          <Card key={folio.tipoDte} className="brand-card p-5 flex flex-col justify-between gap-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <div className="grid size-10 place-items-center rounded-xl bg-[rgb(20_208_246_/_0.1)] text-[var(--brand-navy)]">{icon}</div>
+                <div><h3 className="font-bold text-sm text-[var(--brand-deep)]">{folio.tipoNombre}</h3><p className="font-mono text-xs text-[var(--color-muted-foreground)]">DTE {folio.tipoDte}</p></div>
+              </div>
+              <Badge status={badgeStatus}>{folio.disponibles > 0 ? `${folio.disponibles} disp.` : "Agotado"}</Badge>
+            </div>
+            <div className="text-xs text-[var(--color-muted-foreground)] border-t border-[var(--color-border)] pt-2 flex items-center justify-between">
+              <span>{folio.rangoDesde && folio.rangoHasta ? `Rango: ${folio.rangoDesde} – ${folio.rangoHasta}` : "Sin CAF activo"}</span>
+              <ActionModal triggerLabel="Solicitar" triggerIcon={<PlusCircle size={13} className="mr-1 inline" />} variant="secondary" title={`Solicitar Folios: ${folio.tipoNombre}`} description={`Descarga un nuevo archivo CAF para DTE ${folio.tipoDte} desde el SII.`} submitLabel="Solicitar folios" pendingLabel="Solicitando…" action={requestFoliosAction}>
+                {(formState) => <RequestFoliosFields defaultTipoDte={folio.tipoDte} errors={formState.fieldErrors} />}
+              </ActionModal>
+            </div>
+          </Card>
+        );
+      })}
+    </section>
+  );
+}
+
 export function BillingManager({
   items,
   ready,
@@ -217,7 +295,6 @@ export function BillingManager({
   page,
   pageSize,
   total,
-  folios = [],
 }: {
   items: InvoiceItem[];
   ready: ReadyOrder[];
@@ -226,13 +303,13 @@ export function BillingManager({
   page: number;
   pageSize: number;
   total: number;
-  folios?: FolioStatusItem[];
 }) {
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+  const [folioRefreshKey, setFolioRefreshKey] = useState(0);
 
   const actions = (
     <>
-      <DirectSyncFoliosButton onResult={(res) => setFeedback(res)} />
+      <DirectSyncFoliosButton onResult={(res) => { setFeedback(res); if (res.ok) setFolioRefreshKey((value) => value + 1); }} />
       <ActionModal
         triggerLabel="Solicitar folios al SII"
         triggerIcon={<PlusCircle size={18} />}
@@ -291,63 +368,7 @@ export function BillingManager({
         </Alert>
       )}
 
-      {/* Indicadores de Folios CAF (33, 39, 61) */}
-      <section className="grid gap-4 sm:grid-cols-3">
-        {folios.map((folio) => {
-          const icon =
-            folio.tipoDte === 33 ? (
-              <FileCheck size={20} />
-            ) : folio.tipoDte === 39 ? (
-              <Receipt size={20} />
-            ) : (
-              <FileMinus size={20} />
-            );
-
-          const badgeStatus =
-            folio.disponibles > 10 ? "paid" : folio.disponibles > 0 ? "pending" : "rejected";
-
-          return (
-            <Card key={folio.tipoDte} className="brand-card p-5 flex flex-col justify-between gap-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-3">
-                  <div className="grid size-10 place-items-center rounded-xl bg-[rgb(20_208_246_/_0.1)] text-[var(--brand-navy)]">
-                    {icon}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-[var(--brand-deep)]">{folio.tipoNombre}</h3>
-                    <p className="font-mono text-xs text-[var(--color-muted-foreground)]">DTE {folio.tipoDte}</p>
-                  </div>
-                </div>
-                <Badge status={badgeStatus}>
-                  {folio.disponibles > 0 ? `${folio.disponibles} disp.` : "Agotado"}
-                </Badge>
-              </div>
-
-              <div className="text-xs text-[var(--color-muted-foreground)] border-t border-[var(--color-border)] pt-2 flex items-center justify-between">
-                <span>
-                  {folio.rangoDesde && folio.rangoHasta
-                    ? `Rango: ${folio.rangoDesde} – ${folio.rangoHasta}`
-                    : "Sin CAF activo"}
-                </span>
-                <ActionModal
-                  triggerLabel="Solicitar"
-                  triggerIcon={<PlusCircle size={13} className="mr-1 inline" />}
-                  variant="secondary"
-                  title={`Solicitar Folios: ${folio.tipoNombre}`}
-                  description={`Descarga un nuevo archivo CAF para DTE ${folio.tipoDte} desde el SII.`}
-                  submitLabel="Solicitar folios"
-                  pendingLabel="Solicitando…"
-                  action={requestFoliosAction}
-                >
-                  {(state) => (
-                    <RequestFoliosFields defaultTipoDte={folio.tipoDte} errors={state.fieldErrors} />
-                  )}
-                </ActionModal>
-              </div>
-            </Card>
-          );
-        })}
-      </section>
+      <FolioStatusPanel refreshKey={folioRefreshKey} />
 
       {ready.length ? (
         <Card className="brand-card">
@@ -437,7 +458,6 @@ export function BillingManager({
               <tr>
                 <th>Orden</th>
                 <th>Cliente</th>
-                <th>Estado</th>
                 <th>Folio</th>
                 <th className="text-right">Total</th>
                 <th className="text-right">Acciones</th>
@@ -452,15 +472,12 @@ export function BillingManager({
                   <td data-label="Cliente" className="font-medium">
                     {item.clientName}
                   </td>
-                  <td data-label="Estado">
-                    <FiscalStatusBadge status={item.status} />
-                    {item.siiGlosa ? (
-                      <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">{item.siiGlosa}</p>
-                    ) : item.siiStatus ? (
-                      <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">SII: {item.siiStatus}</p>
-                    ) : null}
+                  <td data-label="Folio">
+                    <span className="inline-flex items-center gap-2">
+                      <FiscalStatusIcon status={item.status} siiStatus={item.siiStatus} siiGlosa={item.siiGlosa} />
+                      <span>{item.folio ?? "—"}</span>
+                    </span>
                   </td>
-                  <td data-label="Folio">{item.folio ?? "—"}</td>
                   <td data-label="Total" className="text-right font-semibold">
                     {formatClpAmount(Number(item.total))}
                   </td>

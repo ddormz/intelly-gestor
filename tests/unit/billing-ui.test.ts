@@ -23,8 +23,9 @@ describe("billing fiscal evidence UI", () => {
   it("renders an accepted state with an icon and keeps unavailable artifact actions visible", () => {
     const html = renderInvoice("issued");
 
-    expect(html).toContain("Aceptada");
+    expect(html).toContain('aria-label="Aceptado por el SII"');
     expect(html).toContain("lucide-badge-check");
+    expect(html).not.toContain(">Estado</th>");
     expect(html).toMatch(/aria-label="Descargar PDF fiscal"[^>]+aria-disabled="true"/);
     expect(html).toMatch(/aria-label="Descargar XML firmado"[^>]+aria-disabled="true"/);
     expect(html).toMatch(/aria-label="Enviar factura por correo"[^>]+aria-disabled="true"/);
@@ -34,9 +35,13 @@ describe("billing fiscal evidence UI", () => {
   });
 
   it("uses distinct icons for pending, processing, and rejected states", () => {
-    expect(renderInvoice("pending")).toContain("lucide-clock-3");
-    expect(renderInvoice("processing")).toContain("lucide-loader-circle");
+    expect(renderInvoice("pending")).toContain("lucide-arrow-right");
+    expect(renderInvoice("processing")).toContain("lucide-clock-3");
     expect(renderInvoice("rejected")).toContain("lucide-circle-x");
+  });
+
+  it("defers folio cards behind a loading skeleton", () => {
+    expect(renderInvoice("issued")).toContain('aria-label="Cargando folios"');
   });
 
   it("does not render a navigable href for a disabled link action", () => {
