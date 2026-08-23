@@ -10,7 +10,7 @@ import { validChileanRut } from "@/features/clients/validation";
 import { getEnv } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 import { getFiscalEvidenceArtifact, storeReconstructedPdf } from "./evidence";
-import { assertProviderMatchesOrder, materializeInvoiceEvidence, normalizeRut, type EvidenceMaterializationResult } from "./evidence-orchestration";
+import { materializeInvoiceEvidence, normalizeRut, type EvidenceMaterializationResult } from "./evidence-orchestration";
 import { parseSignedDteXmlBytes, renderFiscalPdf } from "./xml";
 import { buildAuditEvent } from "@/features/audit/service";
 import { redactMetadata } from "@/lib/errors";
