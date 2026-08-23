@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Banknote, Download, Edit, FileDown, Mail, Plus, Send, Upload } from "lucide-react";
+import { Banknote, Download, Edit, FileDown, Mail, Plus, ReceiptText, Send, Upload } from "lucide-react";
 import {
   ActionModal,
   Alert,
@@ -22,6 +22,7 @@ import {
   markPaidAction,
   sendOrderEmailAction,
 } from "@/features/orders/actions";
+import { issueInvoiceAction } from "@/features/billing/actions";
 import { formatClpAmount } from "@/lib/money";
 import { getStatusLabel } from "@/lib/presentation";
 import type { PageQuery } from "@/lib/list-query";
@@ -262,6 +263,28 @@ export function OrderManager({
                               <input type="hidden" name="idempotencyKey" value={`payment:${order.id}`} />
                               <p className="text-sm text-[var(--color-muted-foreground)]">
                                 Confirma el pago de <strong>{formatClpAmount(Number(order.total))}</strong>.
+                              </p>
+                            </>
+                          )}
+                        </ActionModal>
+                      ) : null}
+                      {order.status === "issued" || order.status === "paid" ? (
+                        <ActionModal
+                          iconOnly
+                          triggerLabel="Emitir factura"
+                          triggerIcon={<ReceiptText size={15} />}
+                          title="Emitir factura"
+                          description="Puedes emitir la factura directamente desde esta orden, sin registrar un pago previamente."
+                          submitLabel="Confirmar emisión"
+                          pendingLabel="Emitiendo factura…"
+                          action={issueInvoiceAction}
+                        >
+                          {() => (
+                            <>
+                              <input type="hidden" name="orderId" value={order.id} />
+                              <p className="text-sm text-[var(--color-muted-foreground)]">
+                                Confirma la emisión de la factura para <strong>{order.number}</strong> por{" "}
+                                <strong>{formatClpAmount(Number(order.total))}</strong>.
                               </p>
                             </>
                           )}

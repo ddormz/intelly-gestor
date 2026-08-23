@@ -20,7 +20,7 @@ export async function issueInvoiceAction(_: ActionState, formData: FormData): Pr
     await enforceSameOrigin();
     const user = await requireUser();
     const result = await issueInvoice(String(formData.get("orderId")), user.userId);
-    revalidatePath("/facturacion"); revalidatePath("/");
+    revalidatePath("/facturacion"); revalidatePath("/ordenes"); revalidatePath("/");
     return { status: "success", message: result.kind === "issued" ? isSiiAcceptedStatus(result.siiStatus) ? "Factura aceptada por el SII." : "Factura emitida; esperando confirmación del SII." : "Solicitud de facturación registrada." };
   } catch (error) {
     if (error instanceof AppError) return { status: "error", message: error.message };

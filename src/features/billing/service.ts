@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, count, desc, eq, gte, like, lte, or, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, like, lte, or, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditEvents, clients, invoices, orderEmailDeliveries, paymentOrders } from "@/db/schema";
 import { buildAuditEvent, writeAudit } from "@/features/audit/service";
@@ -71,7 +71,7 @@ export async function listInvoices(query?: PageQuery): Promise<InvoiceListItem[]
 
 export function listPaidOrdersWithoutInvoice() {
   return getDb().select({ id: paymentOrders.id, number: paymentOrders.number, total: paymentOrders.total, clientName: clients.legalName })
-    .from(paymentOrders).innerJoin(clients, eq(clients.id, paymentOrders.clientId)).where(eq(paymentOrders.status, "paid")).orderBy(desc(paymentOrders.createdAt), desc(paymentOrders.id)).limit(100).execute();
+    .from(paymentOrders).innerJoin(clients, eq(clients.id, paymentOrders.clientId)).where(inArray(paymentOrders.status, ["issued", "paid"])).orderBy(desc(paymentOrders.createdAt), desc(paymentOrders.id)).limit(100).execute();
 }
 
 export async function importHistoricalInvoices(rows: HistoricalInvoiceCsvRow[], actorUserId: string): Promise<number> {
