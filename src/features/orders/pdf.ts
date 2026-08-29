@@ -87,7 +87,8 @@ export function toLegacyPaymentOrder(header: OrderPdfHeader, lines: OrderPdfLine
     items: lines.map((line, index) => ({
       id: line.id,
       name: line.description,
-      description: `${line.code ? `${line.code} · ` : ""}Cantidad: ${Number(line.quantity).toLocaleString("es-CL", { maximumFractionDigits: 3 })}`,
+      description: line.code ?? "",
+      quantity: Number(line.quantity),
       amount: persistedLines[index]!.amount,
       ...(persistedLines[index]!.persisted ? { discountAmount: persistedLines[index]!.discountAmount, netAmount: persistedLines[index]!.netAmount, taxRate: persistedLines[index]!.taxRate, taxAmount: persistedLines[index]!.taxAmount, total: persistedLines[index]!.total, taxable: persistedLines[index]!.taxable } : {}),
     })),

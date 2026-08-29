@@ -7,6 +7,7 @@ export type OrderItem = {
   id: string;
   name: string;
   description: string;
+  quantity?: number;
   amount: number;
   discountAmount?: number;
   netAmount?: number;
@@ -218,25 +219,7 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
   doc.setTextColor(...colors.royal);
   doc.text(order.number, pageWidth - margin, 23.5, { align: "right" });
 
-  const badgeText = taxable ? "CON IVA" : "EXENTO";
-  const badgeWidth = doc.getTextWidth(badgeText) + 8;
-  doc.setFillColor(...(taxable ? colors.navy : colors.pale));
-  doc.roundedRect(
-    pageWidth - margin - badgeWidth,
-    27,
-    badgeWidth,
-    6.5,
-    2,
-    2,
-    "F",
-  );
-  doc.setFontSize(7.2);
-  doc.setTextColor(...(taxable ? colors.white : colors.slate));
-  doc.text(badgeText, pageWidth - margin - badgeWidth / 2, 31.4, {
-    align: "center",
-  });
-
-  let y = 38;
+  let y = 35;
   doc.setFillColor(...colors.pale);
   doc.roundedRect(margin, y, contentWidth, 31, 2.5, 2.5, "F");
 
@@ -304,10 +287,13 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
     startY: y - 2,
     margin: { left: margin, right: margin, bottom: 20 },
     theme: "grid",
-    head: [["ITEM", "DESCRIPCIÓN", "SUBTOTAL"]],
+    head: [["ITEM", "DESCRIPCIÓN", "CANTIDAD", "SUBTOTAL"]],
     body: order.items.map((item) => [
       safe(item.name, "Servicio"),
       safe(item.description, "-"),
+      item.quantity !== undefined
+        ? Number(item.quantity).toLocaleString("es-CL", { maximumFractionDigits: 3 })
+        : "1",
       formatClp(item.amount),
     ]),
     headStyles: {
@@ -329,7 +315,8 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
     columnStyles: {
       0: { cellWidth: 42, fontStyle: "bold" },
       1: { cellWidth: "auto" },
-      2: { cellWidth: 35, halign: "right", fontStyle: "bold" },
+      2: { cellWidth: 24, halign: "center", fontStyle: "bold" },
+      3: { cellWidth: 34, halign: "right", fontStyle: "bold" },
     },
     didDrawPage: () => drawTopBand(),
   });

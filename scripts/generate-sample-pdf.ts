@@ -51,12 +51,14 @@ const order: PaymentOrder = {
       id: "item-1",
       name: "Servicio de Hosting sitio-uno.cl",
       description: "Renovación de Hosting por un período anual.",
+      quantity: 1,
       amount: 50000,
     },
     {
       id: "item-2",
       name: "Servicio de Hosting sitio-dos.cl",
       description: "Renovación de Hosting por un período anual.",
+      quantity: 1,
       amount: 50000,
     },
   ],
@@ -79,6 +81,7 @@ const longOrder: PaymentOrder = {
     name: `Servicio ${index + 1}`,
     description:
       "Descripción extensa del servicio, alcance mensual, soporte incluido y período de vigencia correspondiente.",
+    quantity: 1,
     amount: 15000 + index * 1000,
   })),
 };
