@@ -45,6 +45,7 @@ const order: PaymentOrder = {
   invoice: true,
   discountPercent: 20,
   discountReason: "Cliente preferente por antigüedad",
+  notes: "Servicio incluye soporte técnico estándar y respaldo semanal de bases de datos.",
   items: [
     {
       id: "item-1",

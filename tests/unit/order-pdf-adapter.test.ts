@@ -61,4 +61,15 @@ describe("order PDF adapter", () => {
     ]);
     expect(resolveCommercialTotals(order)).toEqual({ subtotal: 1500, discount: 150, taxableBase: 900, exemptBase: 450, tax: 171, total: 1521 });
   });
+
+  it("maps client observations (notes) to the payment order", () => {
+    const order = toLegacyPaymentOrder({
+      id: "order-4", number: "OP-4", status: "issued", subtotal: "50000", discountTotal: "0", taxTotal: "9500", total: "59500",
+      createdAt: new Date("2026-08-14T12:00:00.000Z"), issuedAt: null, dueAt: null,
+      notes: "Horario de entrega de 09:00 a 18:00 hrs en recepción.",
+      clientName: "Empresa", clientTaxId: null, clientEmail: "contacto@empresa.cl",
+    }, [{ id: "line-4", code: null, description: "Servicio", quantity: "1", subtotal: "50000" }]);
+
+    expect(order.notes).toBe("Horario de entrega de 09:00 a 18:00 hrs en recepción.");
+  });
 });

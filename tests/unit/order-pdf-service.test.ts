@@ -8,7 +8,7 @@ vi.mock("@/db", () => ({ getDb: vi.fn() }));
 
 function configurePdfDb() {
   const results: unknown[] = [
-    [{ id: "order-id", number: "OP-1", status: "issued", subtotal: "1500", discountTotal: "150", discountReason: "Volumen", taxTotal: "171", total: "1521", createdAt: new Date("2026-08-15"), issuedAt: new Date("2026-08-15"), dueAt: null, clientName: "Mixto", clientTaxId: null, clientEmail: "mixto@example.com" }],
+    [{ id: "order-id", number: "OP-1", status: "issued", subtotal: "1500", discountTotal: "150", discountReason: "Volumen", taxTotal: "171", total: "1521", notes: "Entregar en portería", createdAt: new Date("2026-08-15"), issuedAt: new Date("2026-08-15"), dueAt: null, clientName: "Mixto", clientTaxId: null, clientEmail: "mixto@example.com" }],
     [{ id: "taxable", code: "A", description: "Afecto", quantity: "1", subtotal: "1000", discountAmount: "100", taxRate: "19.00", taxAmount: "171", total: "1071", sortOrder: 0 }, { id: "exempt", code: "B", description: "Exento", quantity: "1", subtotal: "500", discountAmount: "50", taxRate: "0.00", taxAmount: "0", total: "450", sortOrder: 1 }],
   ];
   const selections: unknown[] = [];
@@ -25,13 +25,13 @@ function configurePdfDb() {
 }
 
 describe("order PDF production selection", () => {
-  it("uses the persisted 900/450/171/1521 mixed-tax values", async () => {
+  it("uses the persisted 900/450/171/1521 mixed-tax values and includes notes", async () => {
     const selections = configurePdfDb();
     const order = await findOrderPdf("order-id");
-    expect(selections[0]).toMatchObject({ subtotal: paymentOrders.subtotal, discountTotal: paymentOrders.discountTotal, taxTotal: paymentOrders.taxTotal, total: paymentOrders.total });
+    expect(selections[0]).toMatchObject({ subtotal: paymentOrders.subtotal, discountTotal: paymentOrders.discountTotal, taxTotal: paymentOrders.taxTotal, total: paymentOrders.total, notes: paymentOrders.notes });
     expect(selections[1]).toMatchObject({ discountAmount: paymentOrderLines.discountAmount, taxRate: paymentOrderLines.taxRate, taxAmount: paymentOrderLines.taxAmount, total: paymentOrderLines.total });
     expect(order).toBeTruthy();
-    expect(order).toMatchObject({ subtotal: 1500, discountTotal: 150, taxTotal: 171, total: 1521 });
+    expect(order).toMatchObject({ subtotal: 1500, discountTotal: 150, taxTotal: 171, total: 1521, notes: "Entregar en portería" });
     expect(order?.items).toMatchObject([{ netAmount: 900, taxAmount: 171, total: 1071, taxable: true }, { netAmount: 450, taxAmount: 0, total: 450, taxable: false }]);
     const response = await createOrderPdfResponse(order!);
     const bytes = new Uint8Array(await response.arrayBuffer());

@@ -47,6 +47,7 @@ export type PaymentOrder = {
   invoice: boolean;
   discountPercent: number;
   discountReason: string;
+  notes?: string;
   items: OrderItem[];
   subtotal?: number;
   discountTotal?: number;
@@ -192,265 +193,313 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
   const ensureSpace = (y: number, needed: number) =>
     y + needed > pageHeight - 19 ? newPage() : y;
 
-  const sectionTitle = (title: string, y: number) => {
+  const sectionTitle = (title: string, y: number, x = margin, lineWidth = 18) => {
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(...colors.navy);
-    doc.text(title.toUpperCase(), margin, y);
+    doc.text(title.toUpperCase(), x, y);
     doc.setDrawColor(...colors.cyan);
     doc.setLineWidth(0.8);
-    doc.line(margin, y + 2.4, margin + 18, y + 2.4);
-    return y + 7;
+    doc.line(x, y + 2.2, x + lineWidth, y + 2.2);
+    return y + 6;
   };
 
   drawTopBand();
 
   if (logoDataUrl) {
-    doc.addImage(logoDataUrl, "PNG", margin, 11, 45, 30, undefined, "FAST");
+    doc.addImage(logoDataUrl, "PNG", margin, 10, 42, 28, undefined, "FAST");
   }
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(20);
+  doc.setFontSize(18);
   doc.setTextColor(...colors.deep);
-  doc.text("ORDEN DE PAGO", pageWidth - margin, 18, { align: "right" });
-  doc.setFontSize(10);
+  doc.text("ORDEN DE PAGO", pageWidth - margin, 17, { align: "right" });
+  doc.setFontSize(9.5);
   doc.setTextColor(...colors.royal);
-  doc.text(order.number, pageWidth - margin, 25, { align: "right" });
+  doc.text(order.number, pageWidth - margin, 23.5, { align: "right" });
 
   const badgeText = taxable ? "CON IVA" : "EXENTO";
   const badgeWidth = doc.getTextWidth(badgeText) + 8;
   doc.setFillColor(...(taxable ? colors.navy : colors.pale));
   doc.roundedRect(
     pageWidth - margin - badgeWidth,
-    29,
+    27,
     badgeWidth,
-    7,
+    6.5,
     2,
     2,
     "F",
   );
-  doc.setFontSize(7.5);
+  doc.setFontSize(7.2);
   doc.setTextColor(...(taxable ? colors.white : colors.slate));
-  doc.text(badgeText, pageWidth - margin - badgeWidth / 2, 33.7, {
+  doc.text(badgeText, pageWidth - margin - badgeWidth / 2, 31.4, {
     align: "center",
   });
 
-  let y = 46;
+  let y = 38;
   doc.setFillColor(...colors.pale);
-  doc.roundedRect(margin, y, contentWidth, 37, 3, 3, "F");
+  doc.roundedRect(margin, y, contentWidth, 31, 2.5, 2.5, "F");
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.setTextColor(...colors.navy);
-  doc.text("EMISOR", margin + 5, y + 7);
   doc.setFontSize(8.5);
+  doc.setTextColor(...colors.navy);
+  doc.text("EMISOR", margin + 5, y + 5.5);
+  doc.setFontSize(8);
   doc.setTextColor(...colors.deep);
-  doc.text(safe(settings.companyName), margin + 5, y + 13);
+  doc.text(safe(settings.companyName), margin + 5, y + 10.5);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...colors.slate);
-  doc.text(`RUT ${safe(settings.companyRut, "-")}`, margin + 5, y + 18);
+  doc.setFontSize(7.5);
+  doc.text(`RUT ${safe(settings.companyRut, "-")}`, margin + 5, y + 15);
   doc.text(
     safe(settings.businessLine, "Servicios tecnológicos"),
     margin + 5,
-    y + 23,
+    y + 19.5,
   );
-  doc.setFontSize(7.2);
-  doc.text(safe(settings.address, "-"), margin + 5, y + 28);
+  doc.setFontSize(7);
+  doc.text(safe(settings.address, "-"), margin + 5, y + 23.5);
   const contactLine = [settings.email.trim(), settings.phone.trim()]
     .filter(Boolean)
     .join(" · ");
-  doc.text(contactLine || "-", margin + 5, y + 33);
+  doc.text(contactLine || "-", margin + 5, y + 27.5);
 
   const metaX = margin + 110;
   doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
   doc.setTextColor(...colors.navy);
-  doc.text("EMISIÓN", metaX, y + 7);
-  doc.text("VENCIMIENTO", metaX, y + 18);
+  doc.text("EMISIÓN", metaX, y + 5.5);
+  doc.text("VENCIMIENTO", metaX, y + 15);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...colors.deep);
-  doc.text(formatDate(order.issueDate), pageWidth - margin - 5, y + 7, {
+  doc.text(formatDate(order.issueDate), pageWidth - margin - 5, y + 5.5, {
     align: "right",
   });
-  doc.text(formatDate(order.dueDate), pageWidth - margin - 5, y + 18, {
+  doc.text(formatDate(order.dueDate), pageWidth - margin - 5, y + 15, {
     align: "right",
   });
 
-  y += 45;
+  y += 35;
   y = sectionTitle("Cliente", y);
   doc.setFillColor(...colors.white);
   doc.setDrawColor(...colors.line);
-  doc.roundedRect(margin, y - 2, contentWidth, 19, 2, 2, "FD");
+  doc.setLineWidth(0.3);
+  doc.roundedRect(margin, y - 2, contentWidth, 14, 2, 2, "FD");
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setTextColor(...colors.deep);
-  doc.text(safe(order.customerName), margin + 5, y + 5);
+  doc.text(safe(order.customerName), margin + 5, y + 3.5);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
+  doc.setFontSize(7.5);
   doc.setTextColor(...colors.slate);
-  doc.text(`RUT: ${safe(order.customerRut, "-")}`, margin + 5, y + 11);
+  doc.text(`RUT: ${safe(order.customerRut, "-")}`, margin + 5, y + 8.5);
   doc.text(
     `Correo: ${safe(order.customerEmail, "-")}`,
     margin + 70,
-    y + 11,
+    y + 8.5,
   );
 
-  y += 25;
+  y += 16;
   y = sectionTitle("Detalle del servicio", y);
   autoTable(doc, {
     startY: y - 2,
-    margin: { left: margin, right: margin, bottom: 22 },
+    margin: { left: margin, right: margin, bottom: 20 },
     theme: "grid",
-     head: [["ITEM", "DESCRIPCIÓN", "BASE", "IVA", "TOTAL"]],
-     body: order.items.map((item) => [
-       safe(item.name, "Servicio"),
-       safe(item.description, "-"),
-       formatClp(persistedLineValues ? Number(item.netAmount) : item.amount),
-       persistedLineValues ? `${item.taxable ? `IVA ${Number(item.taxRate)}%` : "Exento"}\n${formatClp(Number(item.taxAmount))}` : formatClp(0),
-       formatClp(persistedLineValues ? Number(item.total) : item.amount),
-     ]),
+    head: [["ITEM", "DESCRIPCIÓN", "SUBTOTAL"]],
+    body: order.items.map((item) => [
+      safe(item.name, "Servicio"),
+      safe(item.description, "-"),
+      formatClp(item.amount),
+    ]),
     headStyles: {
       fillColor: colors.navy,
       textColor: colors.white,
       fontStyle: "bold",
       fontSize: 8,
-      cellPadding: 3.2,
+      cellPadding: 2.8,
     },
     bodyStyles: {
       textColor: colors.deep,
-      fontSize: 8.3,
-      cellPadding: 3.2,
+      fontSize: 8,
+      cellPadding: 2.8,
       lineColor: colors.line,
       lineWidth: 0.2,
       valign: "middle",
     },
     alternateRowStyles: { fillColor: colors.pale },
     columnStyles: {
-       0: { cellWidth: 35, fontStyle: "bold" },
-       1: { cellWidth: "auto" },
-       2: { cellWidth: 27, halign: "right", fontStyle: "bold" },
-       3: { cellWidth: 29, halign: "right" },
-       4: { cellWidth: 29, halign: "right", fontStyle: "bold" },
+      0: { cellWidth: 42, fontStyle: "bold" },
+      1: { cellWidth: "auto" },
+      2: { cellWidth: 35, halign: "right", fontStyle: "bold" },
     },
     didDrawPage: () => drawTopBand(),
   });
 
   const tableDoc = doc as jsPDF & { lastAutoTable: { finalY: number } };
-  y = tableDoc.lastAutoTable.finalY + 8;
-  const hasDiscount = discount > 0;
-   const totalsHeight = (hasDiscount ? 15 : 0) + (persistedLineValues ? 18 : 0) + 43;
-  y = ensureSpace(y, totalsHeight + 3);
+  const afterTableY = tableDoc.lastAutoTable.finalY + 5;
 
-  const totalsX = pageWidth - margin - 75;
+  const totalsWidth = 72;
+  const totalsX = pageWidth - margin - totalsWidth;
+  const leftWidth = totalsX - margin - 6;
+  const leftX = margin;
+
+  const hasDiscount = discount > 0;
+  const hasMixedTax = persistedLineValues && exemptBase > 0;
+  const hasReason = Boolean(hasDiscount && order.discountReason && order.discountReason.trim());
+  const totalsHeight = 22 + (hasDiscount ? (hasReason ? 14 : 9) : 0) + (hasMixedTax ? 10 : 0);
+
+  const blockStartY = ensureSpace(afterTableY, totalsHeight + 25);
+
+  // Right Column: Totales
   doc.setFillColor(...colors.pale);
-  doc.roundedRect(totalsX, y, 75, totalsHeight, 3, 3, "F");
+  doc.roundedRect(totalsX, blockStartY, totalsWidth, totalsHeight, 2.5, 2.5, "F");
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
+  doc.setFontSize(8);
   doc.setTextColor(...colors.slate);
-  doc.text("Subtotal neto", totalsX + 5, y + 7);
-  doc.text(formatClp(subtotal), pageWidth - margin - 5, y + 7, {
+
+  let totalLineY = blockStartY + 5;
+  doc.text("Subtotal neto", totalsX + 4, totalLineY);
+  doc.text(formatClp(subtotal), pageWidth - margin - 4, totalLineY, {
     align: "right",
   });
 
-   let totalLineY = y + 13;
   if (hasDiscount) {
+    totalLineY += 4.5;
     doc.setTextColor(180, 55, 48);
-    doc.text(`Descuento (${discountPercent}%)`, totalsX + 5, totalLineY);
-    doc.text(`-${formatClp(discount)}`, pageWidth - margin - 5, totalLineY, {
+    doc.text(`Descuento (${discountPercent}%)`, totalsX + 4, totalLineY);
+    doc.text(`-${formatClp(discount)}`, pageWidth - margin - 4, totalLineY, {
       align: "right",
     });
 
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(6.3);
-    doc.setTextColor(...colors.slate);
-    const fullReason = doc.splitTextToSize(
-      `Motivo: ${order.discountReason.trim()}`,
-      65,
-    ) as string[];
-    const reasonLines = fullReason.slice(0, 2);
-    if (reasonLines.length === 2) {
-      if (fullReason.length > 2) {
-        reasonLines[1] = `${reasonLines[1].replace(/[.\s]+$/, "")}...`;
-      }
+    if (hasReason) {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(6);
+      doc.setTextColor(...colors.slate);
+      const fullReason = doc.splitTextToSize(
+        `Motivo: ${order.discountReason.trim()}`,
+        totalsWidth - 8,
+      ) as string[];
+      const reasonLine = fullReason[0] + (fullReason.length > 1 ? "..." : "");
+      totalLineY += 3.2;
+      doc.text(reasonLine, totalsX + 4, totalLineY);
+      totalLineY += 1.2;
     }
-    reasonLines.forEach((line, index) => {
-      doc.text(line, totalsX + 5, totalLineY + 4 + index * 3.5);
-    });
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
+    doc.setFontSize(8);
     doc.setTextColor(...colors.slate);
-    totalLineY += reasonLines.length > 1 ? 11 : 8;
-     doc.text("Neto con descuento", totalsX + 5, totalLineY);
+    totalLineY += 4.5;
+    doc.text("Neto con descuento", totalsX + 4, totalLineY);
     doc.text(
       formatClp(discountedSubtotal),
-      pageWidth - margin - 5,
+      pageWidth - margin - 4,
       totalLineY,
       { align: "right" },
     );
-    totalLineY += 7;
   }
 
-   if (persistedLineValues) {
-     doc.text("Base afecta", totalsX + 5, totalLineY);
-     doc.text(formatClp(taxableBase), pageWidth - margin - 5, totalLineY, { align: "right" });
-     totalLineY += 7;
-     doc.text("Base exenta", totalsX + 5, totalLineY);
-     doc.text(formatClp(exemptBase), pageWidth - margin - 5, totalLineY, { align: "right" });
-     totalLineY += 7;
-   }
-   doc.text(persistedLineValues ? "IVA" : order.invoice ? "IVA (19%)" : "IVA (sin factura)", totalsX + 5, totalLineY);
-  doc.text(formatClp(tax), pageWidth - margin - 5, totalLineY, {
-    align: "right",
-  });
-  doc.setDrawColor(...colors.line);
-  doc.line(
-    totalsX + 5,
-    totalLineY + 4,
-    pageWidth - margin - 5,
-    totalLineY + 4,
-  );
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(...colors.navy);
-  doc.text("TOTAL", totalsX + 5, totalLineY + 11);
-  doc.text(formatClp(total), pageWidth - margin - 5, totalLineY + 11, {
+  if (hasMixedTax) {
+    totalLineY += 4.5;
+    doc.text("Base afecta", totalsX + 4, totalLineY);
+    doc.text(formatClp(taxableBase), pageWidth - margin - 4, totalLineY, { align: "right" });
+    totalLineY += 4.5;
+    doc.text("Base exenta", totalsX + 4, totalLineY);
+    doc.text(formatClp(exemptBase), pageWidth - margin - 4, totalLineY, { align: "right" });
+  }
+
+  totalLineY += 4.5;
+  doc.text(persistedLineValues ? "IVA" : order.invoice ? "IVA (19%)" : "IVA (sin factura)", totalsX + 4, totalLineY);
+  doc.text(formatClp(tax), pageWidth - margin - 4, totalLineY, {
     align: "right",
   });
 
-  y += totalsHeight + 9;
-  y = ensureSpace(y, 50);
-  y = sectionTitle("Datos para transferencia", y);
+  doc.setDrawColor(...colors.line);
+  doc.line(
+    totalsX + 4,
+    totalLineY + 2.5,
+    pageWidth - margin - 4,
+    totalLineY + 2.5,
+  );
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(...colors.navy);
+  totalLineY += 7.5;
+  doc.text("TOTAL", totalsX + 4, totalLineY);
+  doc.text(formatClp(total), pageWidth - margin - 4, totalLineY, {
+    align: "right",
+  });
+
+  const rightBottomY = blockStartY + totalsHeight;
+
+  // Left Column: Datos para transferencia
+  let leftY = blockStartY;
+  sectionTitle("Datos para transferencia", leftY, leftX, 22);
+  const transferBoxY = leftY + 5;
+  const transferBoxHeight = 23;
 
   doc.setFillColor(...colors.white);
   doc.setDrawColor(...colors.line);
-  doc.setLineWidth(0.35);
-  const paymentBoxWidth = 88;
-  doc.roundedRect(margin, y - 2, paymentBoxWidth, 28, 3, 3, "FD");
-  doc.setFontSize(8.2);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(leftX, transferBoxY, leftWidth, transferBoxHeight, 2.5, 2.5, "FD");
+
+  doc.setFontSize(7.5);
   const paymentLines = [
     safe(settings.accountHolder, settings.companyName || "INTELLY SPA"),
-    safe(settings.accountRut, settings.companyRut || "-"),
+    `RUT ${safe(settings.accountRut, settings.companyRut || "-")}`,
     safe(settings.bankName),
-    safe(settings.accountType),
-    safe(settings.accountNumber),
-    safe(settings.transferEmail, settings.email || "-"),
+    `${safe(settings.accountType)} · ${safe(settings.accountNumber)}`,
+    `Comprobante: ${safe(settings.transferEmail, settings.email || "-")}`,
   ];
   paymentLines.forEach((line, index) => {
     doc.setFont("helvetica", index === 0 ? "bold" : "normal");
     doc.setTextColor(...(index === 0 ? colors.navy : colors.slate));
-    doc.text(line, margin + 6, y + 3.6 + index * 4.15);
+    doc.text(line, leftX + 4, transferBoxY + 3.8 + index * 3.7);
   });
 
-  y += 29;
+  leftY = transferBoxY + transferBoxHeight;
+
+  // Left Column: Observaciones al cliente
+  const hasNotes = Boolean(order.notes && order.notes.trim());
+  if (hasNotes) {
+    leftY += 3.5;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(...colors.navy);
+    doc.text("OBSERVACIONES AL CLIENTE", leftX, leftY + 2.5);
+    doc.setDrawColor(...colors.cyan);
+    doc.setLineWidth(0.6);
+    doc.line(leftX, leftY + 3.5, leftX + 16, leftY + 3.5);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.2);
+    doc.setTextColor(...colors.slate);
+    const wrappedNotes = doc.splitTextToSize(order.notes!.trim(), leftWidth - 8) as string[];
+    const notesLineHeight = 3.3;
+    const notesBoxHeight = Math.max(9, wrappedNotes.length * notesLineHeight + 4);
+
+    const notesBoxY = leftY + 5.5;
+    doc.setFillColor(...colors.white);
+    doc.setDrawColor(...colors.line);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(leftX, notesBoxY, leftWidth, notesBoxHeight, 2, 2, "FD");
+
+    wrappedNotes.forEach((line, idx) => {
+      doc.text(line, leftX + 4, notesBoxY + 3 + idx * notesLineHeight);
+    });
+
+    leftY = notesBoxY + notesBoxHeight;
+  }
+
+  y = Math.max(leftY, rightBottomY) + 5;
   const conditionParagraphs = [
     safe(settings.paymentTerms, "Pago dentro del plazo indicado."),
     settings.paymentInstructions.trim(),
   ].filter(Boolean);
-  const conditionsTextY = y + 7;
+
   const conditionsBottom = pageHeight - 14.5;
-  let conditionsFontSize = 8.2;
-  let conditionsLineHeight = 3.75;
-  let conditionsParagraphGap = 1.5;
+  let conditionsFontSize = 7.5;
+  let conditionsLineHeight = 3.4;
+  let conditionsParagraphGap = 1.2;
   let wrappedConditions: string[][] = [];
   let conditionsHeight = 0;
 
@@ -470,7 +519,7 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
 
   measureConditions();
   while (
-    conditionsTextY + conditionsHeight > conditionsBottom &&
+    y + 6 + conditionsHeight > conditionsBottom &&
     conditionsFontSize > 6
   ) {
     conditionsFontSize = Math.max(6, conditionsFontSize - 0.3);
@@ -480,7 +529,7 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
   }
 
   y = sectionTitle("Condiciones y plazos", y);
-  if (conditionsTextY + conditionsHeight > conditionsBottom) {
+  if (y + conditionsHeight > conditionsBottom) {
     autoTable(doc, {
       startY: y - 2,
       margin: { left: margin, right: margin, bottom: 20 },

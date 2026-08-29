@@ -14,6 +14,7 @@ export type OrderPdfHeader = {
   createdAt: Date;
   issuedAt: Date | null;
   dueAt: Date | null;
+  notes?: string | null;
   clientName: string;
   clientTaxId: string | null;
   clientEmail: string;
@@ -81,6 +82,7 @@ export function toLegacyPaymentOrder(header: OrderPdfHeader, lines: OrderPdfLine
     invoice: Number(header.taxTotal) > 0,
     discountPercent,
     discountReason: header.discountReason ?? (discount > 0 ? "Descuento aplicado a la orden" : ""),
+    notes: header.notes?.trim() || undefined,
     ...(hasPersistedTotals ? { subtotal: Number(header.subtotal), discountTotal: discount, taxTotal: Number(header.taxTotal), total: Number(header.total) } : {}),
     items: lines.map((line, index) => ({
       id: line.id,

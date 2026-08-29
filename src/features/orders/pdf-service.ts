@@ -17,6 +17,7 @@ const headerSelection = {
   createdAt: paymentOrders.createdAt,
   issuedAt: paymentOrders.issuedAt,
   dueAt: paymentOrders.dueAt,
+  notes: paymentOrders.notes,
   clientName: clients.legalName,
   clientTaxId: clients.taxId,
   clientEmail: clients.email,
