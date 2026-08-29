@@ -126,6 +126,15 @@ export async function regenerateInvoicePdf(invoiceId: string, userId: string, ga
     await db.insert(auditEvents).values(buildAuditEvent({ actorUserId: userId, actorType: "user", action: "invoice.pdf_reconstructed", entityType: "invoice", entityId: invoice.id, metadata: { providerDocumentId: invoice.providerDocumentId, folio: invoice.folio, manual: true } }));
     return { kind: "issued", providerDocumentId: invoice.providerDocumentId ?? "", folio: invoice.folio ?? "", issuedAt: invoice.issuedAt?.toISOString() ?? new Date().toISOString(), trackId: invoice.trackId, siiStatus: invoice.siiStatus, siiGlosa: invoice.siiGlosa };
   } catch (error) {
+    try {
+      const recovered = await recoverStoredEmissionEvidence(db, invoice, userId);
+      if (recovered) return recovered;
+      if (invoice.providerDocumentId) {
+        return await refreshInvoiceStatus(invoiceId, userId, gateway);
+      }
+    } catch {
+      // Fall through to error reporting
+    }
     const safe = error instanceof AppError ? error : new AppError("PDF_RECONSTRUCTION_FAILED", "No se pudo reconstruir el PDF fiscal.", 500);
     await db.update(invoices).set({ evidenceStatus: "failed", evidenceError: safe.message.slice(0, 300), lastErrorCode: safe.code, lastErrorMessage: safe.message.slice(0, 300), updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
     throw safe;

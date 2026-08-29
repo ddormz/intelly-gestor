@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoiceEvidence } from "@/db/schema";
-import { getFiscalEvidence, storeReconstructedPdf, storeSignedXml, storeSignedXmlBytes } from "@/features/billing/evidence";
+import { getFiscalEvidence, getFiscalEvidenceArtifact, storeReconstructedPdf, storeSignedXml, storeSignedXmlBytes } from "@/features/billing/evidence";
 
 vi.mock("@/db", () => ({ getDb: vi.fn() }));
 
@@ -85,5 +85,21 @@ describe("private fiscal evidence", () => {
     const result = await storeSignedXmlBytes("invoice-1", { dteType: "33", folio: "42" }, new Uint8Array(Buffer.from("<DTE/>")));
     expect(result.version).toBe(2);
     expect(transactionCalls).toBe(2);
+  });
+
+  it("handles missing files on disk gracefully without throwing unhandled ENOENT", async () => {
+    const root = await mkdtemp(join(tmpdir(), "intelly-fiscal-"));
+    process.env.FISCAL_EVIDENCE_DIR = root;
+    const db = {
+      select: vi.fn(() => ({ from: vi.fn(() => ({ where: vi.fn(() => ({ execute: vi.fn().mockResolvedValue([{ id: "evidence-missing", invoiceId: "invoice-missing", kind: "reconstructed_pdf", storageKey: "invoice-missing/reconstructed_pdf-missing.pdf", sha256: "somehash", mimeType: "application/pdf", dteType: "33", folio: "42", rendererVersion: null, version: 1 }]) })) })) })),
+    };
+    const { getDb } = await import("@/db");
+    vi.mocked(getDb).mockReturnValue(db as never);
+
+    const result = await getFiscalEvidence("invoice-missing");
+    expect(result?.artifacts[0]?.bytes).toBeUndefined();
+
+    const artifact = await getFiscalEvidenceArtifact("invoice-missing", "reconstructed_pdf");
+    expect(artifact).toBeNull();
   });
 });

@@ -142,15 +142,23 @@ export async function getFiscalEvidence(invoiceId: string): Promise<FiscalEviden
     if (current && row.version > current.version) latest[latest.indexOf(current)] = row;
   }
   const artifacts = await Promise.all(latest.map(async (row) => {
-    const bytes = new Uint8Array(await readFile(safeStoragePath(row.storageKey)));
-    const hash = createHash("sha256").update(bytes).digest("hex");
-    if (hash !== row.sha256) throw new Error("FISCAL_EVIDENCE_HASH_MISMATCH");
-    return { ...row, bytes };
+    try {
+      const bytes = new Uint8Array(await readFile(safeStoragePath(row.storageKey)));
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      if (hash !== row.sha256) throw new Error("FISCAL_EVIDENCE_HASH_MISMATCH");
+      return { ...row, bytes };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as Error).message === "FISCAL_EVIDENCE_PATH_INVALID") {
+        return { ...row, bytes: undefined };
+      }
+      throw error;
+    }
   }));
   return { invoiceId, artifacts };
 }
 
 export async function getFiscalEvidenceArtifact(invoiceId: string, kind: SignedFiscalEvidence["kind"]): Promise<SignedFiscalEvidence | null> {
   const evidence = await getFiscalEvidence(invoiceId);
-  return evidence?.artifacts.find((artifact) => artifact.kind === kind) ?? null;
+  const artifact = evidence?.artifacts.find((item) => item.kind === kind);
+  return artifact?.bytes ? artifact : null;
 }
