@@ -17,6 +17,7 @@ type ClientResult = { id: string; legalName: string; taxId: string | null; email
 type CatalogResult = { id: string; code: string; name: string; type: "product" | "service" | "project"; unitPrice: string; taxCategory: "taxable" | "exempt"; taxRate: string };
 type PosLine = PosDraftLine & { rowKey: string; code: string; taxRate: number; taxCategory: "taxable" | "exempt" };
 
+
 export type OrderPosInitial = {
   id?: string;
   number?: string;
@@ -49,7 +50,8 @@ export function OrderPos({ action, initial }: { action: (state: ActionState, for
     rowKey: line.id ?? line.catalogItemId ?? `free-${index}`,
     catalogItemId: line.catalogItemId,
     code: line.code ?? "",
-    name: line.description,
+    name: line.catalogItemId === null ? (line.code ?? line.description) : line.description,
+    description: line.catalogItemId === null && line.code && line.code !== line.description ? line.description : (line.catalogItemId === null ? line.description : ""),
     quantity: line.quantity,
     unitPrice: line.unitPrice,
     taxRate: line.taxRate,
@@ -63,7 +65,7 @@ export function OrderPos({ action, initial }: { action: (state: ActionState, for
   const editable = !initial?.status || initial.status === "draft" || initial.status === "issued";
   const discountNeedsReason = discountPercent > 0 && !discountReason.trim();
   const settledStatus = initial?.status ? getStatusLabel(initial.status) : "";
-  const freeLineNeedsDescription = lines.some((line) => line.catalogItemId === null && !line.name?.trim());
+  const freeLineNeedsDescription = lines.some((line) => line.catalogItemId === null && !line.name?.trim() && !line.description?.trim());
 
   useEffect(() => {
     if (clientQuery.trim().length < 2) {
@@ -89,21 +91,21 @@ export function OrderPos({ action, initial }: { action: (state: ActionState, for
     return () => { current = false; window.clearTimeout(timer); };
   }, [catalogQuery]);
 
-  const calculated = lines.length ? calculateOrder(lines.map((line) => ({ description: line.name?.trim() || "Ítem libre", quantity: line.quantity, unitPrice: clp(line.unitPrice), taxRate: line.taxRate, taxCategory: line.taxCategory })), discountPercent, discountReason || "Descuento") : null;
+  const calculated = lines.length ? calculateOrder(lines.map((line) => ({ description: line.name?.trim() || line.description?.trim() || "Ítem libre", quantity: line.quantity, unitPrice: clp(line.unitPrice), taxRate: line.taxRate, taxCategory: line.taxCategory })), discountPercent, discountReason || "Descuento") : null;
   const draft = buildOrderCartPayload({ clientId: client?.id ?? "", lines, discountPercent, discountReason, dueAt, notes, expectedVersion: initial?.version });
 
   function addCatalog(item: CatalogResult) {
     setLines((current) => {
       const found = current.find((line) => line.catalogItemId === item.id);
       if (found) return current.map((line) => line.catalogItemId === item.id ? { ...line, quantity: line.quantity + 1 } : line);
-      return [...current, { rowKey: item.id, catalogItemId: item.id, code: item.code, name: item.name, quantity: 1, unitPrice: Math.round(Number(item.unitPrice)), taxRate: Number(item.taxRate), taxCategory: item.taxCategory }];
+      return [...current, { rowKey: item.id, catalogItemId: item.id, code: item.code, name: item.name, description: "", quantity: 1, unitPrice: Math.round(Number(item.unitPrice)), taxRate: Number(item.taxRate), taxCategory: item.taxCategory }];
     });
     setCatalogQuery("");
     setCatalogResults([]);
   }
 
   function addFreeLine() {
-    setLines((current) => [...current, { rowKey: crypto.randomUUID(), catalogItemId: null, code: "", name: "", quantity: 1, unitPrice: 0, taxRate: 19, taxCategory: "taxable" }]);
+    setLines((current) => [...current, { rowKey: crypto.randomUUID(), catalogItemId: null, code: "", name: "", description: "", quantity: 1, unitPrice: 0, taxRate: 19, taxCategory: "taxable" }]);
   }
 
   function removeLine(rowKey: string) {
@@ -152,7 +154,7 @@ export function OrderPos({ action, initial }: { action: (state: ActionState, for
         <section className="surface rounded-[var(--radius-lg)] p-5 sm:p-6">
           <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-lg font-bold text-[var(--brand-deep)]">2. Conceptos</h2>{editable ? <button className="btn-secondary inline-flex items-center gap-1.5" type="button" onClick={addFreeLine}><Plus aria-hidden="true" size={16} />Agregar ítem libre</button> : null}</div>
           <Field label="Buscar producto, servicio o proyecto"><div className="relative"><div className="flex gap-2"><Input disabled={!editable} value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="Código o nombre" aria-label="Buscar concepto" /><IconButton disabled={!editable} type="button" label="Buscar conceptos" icon={<Search size={18} />} onClick={() => setCatalogQuery(catalogQuery.trim())} /></div>{catalogResults.length ? <ul className="absolute inset-x-0 top-full z-10 mt-1 rounded-md border border-[var(--color-border-strong)] bg-white p-1 shadow-lg">{catalogResults.map((item) => <li key={item.id}><button disabled={!editable} type="button" className="flex w-full items-center justify-between gap-3 rounded px-3 py-2 text-left text-sm hover:bg-[var(--color-background-soft)]" onClick={() => addCatalog(item)}><span><strong>{item.name}</strong><span className="ml-2 text-[var(--color-muted-foreground)]">{item.code} · {typeLabel(item.type)}</span></span><span className="font-semibold">{formatClpAmount(Number(item.unitPrice))}</span></button></li>)}</ul> : null}</div></Field>
-          {lines.length ? <div className="mt-5"><TableShell mobileCards><thead><tr><th>Concepto</th><th className="w-28">Cantidad</th><th className="w-36">Precio unitario</th><th className="text-right">Total</th><th /></tr></thead><tbody>{lines.map((line) => { const lineTotal = Math.round(line.quantity * line.unitPrice); return <tr key={line.rowKey}><td data-label="Concepto">{line.catalogItemId === null ? <div className="space-y-1.5"><Input disabled={!editable} required aria-label="Descripción del ítem libre" placeholder="Escribe el ítem" value={line.name ?? ""} onChange={(event) => setLines((current) => current.map((item) => item.rowKey === line.rowKey ? { ...item, name: event.target.value } : item))} /><select disabled={!editable} aria-label={`Tratamiento tributario de ${line.name || "ítem libre"}`} className="field py-1 text-xs" value={line.taxCategory} onChange={(event) => { const category = event.target.value as "taxable" | "exempt"; setLines((current) => current.map((item) => item.rowKey === line.rowKey ? { ...item, taxCategory: category, taxRate: category === "exempt" ? 0 : 19 } : item)); }}><option value="taxable">Con IVA (19%)</option><option value="exempt">Exento</option></select></div> : <><strong>{line.name}</strong><span className="block text-xs text-[var(--color-muted-foreground)]">{line.code}{line.taxCategory === "exempt" || line.taxRate === 0 ? " · Exento" : ""}</span></>}</td><td data-label="Cantidad"><Input disabled={!editable} aria-label={`Cantidad de ${line.name || "ítem"}`} type="number" min="1" max="999" value={line.quantity} onChange={(event) => setLines((current) => current.map((item) => item.rowKey === line.rowKey ? { ...item, quantity: Math.max(1, Number(event.target.value) || 1) } : item))} /></td><td data-label="Precio unitario"><Input disabled={!editable} aria-label={`Precio de ${line.name || "ítem"}`} type="number" min="0" value={line.unitPrice} onChange={(event) => setLines((current) => current.map((item) => item.rowKey === line.rowKey ? { ...item, unitPrice: Math.max(0, Number(event.target.value) || 0) } : item))} /></td><td data-label="Total" className="text-right font-semibold">{formatClpAmount(lineTotal)}</td><td data-label="Quitar"><IconButton disabled={!editable} type="button" label={`Quitar ${line.name || "ítem"}`} icon={<Trash2 size={16} />} variant="danger" onClick={() => removeLine(line.rowKey)} /></td></tr>; })}</tbody></TableShell></div> : <EmptyState title="Carrito vacío" copy="Busca un concepto activo para agregar la primera línea." />}
+          {lines.length ? <div className="mt-5"><TableShell mobileCards><thead><tr><th>Concepto</th><th className="w-28">Cantidad</th><th className="w-36">Precio unitario</th><th className="text-right">Total</th><th /></tr></thead><tbody>{lines.map((line) => { const lineTotal = Math.round(line.quantity * line.unitPrice); return <tr key={line.rowKey}><td data-label="Concepto">{line.catalogItemId === null ? <div className="space-y-1.5 min-w-44"><Input disabled={!editable} aria-label="Ítem o concepto del ítem libre" placeholder="Ítem / Concepto (ej: Soporte)" value={line.name ?? ""} onChange={(event) => setLines((current) => current.map((item) => item.rowKey === line.rowKey ? { ...item, name: event.target.value } : item))} /><Input disabled={!editable} aria-label="Descripción del ítem libre" placeholder="Descripción del ítem (alcance, detalles...)" value={line.description ?? ""} onChange={(event) => setLines((current) => current.map((item) => item.rowKey === line.rowKey ? { ...item, description: event.target.value } : item))} /><select disabled={!editable} aria-label={`Tratamiento tributario de ${line.name || line.description || "ítem libre"}`} className="field py-1 text-xs" value={line.taxCategory} onChange={(event) => { const category = event.target.value as "taxable" | "exempt"; setLines((current) => current.map((item) => item.rowKey === line.rowKey ? { ...item, taxCategory: category, taxRate: category === "exempt" ? 0 : 19 } : item)); }}><option value="taxable">Con IVA (19%)</option><option value="exempt">Exento</option></select></div> : <><strong>{line.name}</strong><span className="block text-xs text-[var(--color-muted-foreground)]">{line.code}{line.taxCategory === "exempt" || line.taxRate === 0 ? " · Exento" : ""}</span></>}</td><td data-label="Cantidad"><Input disabled={!editable} aria-label={`Cantidad de ${line.name || "ítem"}`} type="number" min="1" max="999" value={line.quantity} onChange={(event) => setLines((current) => current.map((item) => item.rowKey === line.rowKey ? { ...item, quantity: Math.max(1, Number(event.target.value) || 1) } : item))} /></td><td data-label="Precio unitario"><Input disabled={!editable} aria-label={`Precio de ${line.name || "ítem"}`} type="number" min="0" value={line.unitPrice} onChange={(event) => setLines((current) => current.map((item) => item.rowKey === line.rowKey ? { ...item, unitPrice: Math.max(0, Number(event.target.value) || 0) } : item))} /></td><td data-label="Total" className="text-right font-semibold">{formatClpAmount(lineTotal)}</td><td data-label="Quitar"><IconButton disabled={!editable} type="button" label={`Quitar ${line.name || "ítem"}`} icon={<Trash2 size={16} />} variant="danger" onClick={() => removeLine(line.rowKey)} /></td></tr>; })}</tbody></TableShell></div> : <EmptyState title="Carrito vacío" copy="Busca un concepto activo para agregar la primera línea." />}
         </section>
         <section className="surface rounded-[var(--radius-lg)] p-5 sm:p-6"><h2 className="mb-4 text-lg font-bold text-[var(--brand-deep)]">3. Condiciones</h2><div className="grid gap-4 sm:grid-cols-2"><Field label="Descuento (%)"><Input disabled={!editable} type="number" min="0" max="100" step="0.01" value={discountPercent} onChange={(event) => setDiscountPercent(Math.min(100, Math.max(0, Number(event.target.value) || 0)))} /></Field><Field label="Glosa del descuento" error={discountNeedsReason ? "Indica el motivo del descuento." : undefined}><Input disabled={!editable} aria-invalid={discountNeedsReason} value={discountReason} onChange={(event) => setDiscountReason(event.target.value)} placeholder="Descuento por volumen" /></Field><Field label="Vencimiento"><Input disabled={!editable} type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></Field><Field label="Notas"><Input disabled={!editable} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Observaciones para el cliente" /></Field></div></section>
       </div>

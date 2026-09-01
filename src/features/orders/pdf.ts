@@ -84,14 +84,29 @@ export function toLegacyPaymentOrder(header: OrderPdfHeader, lines: OrderPdfLine
     discountReason: header.discountReason ?? (discount > 0 ? "Descuento aplicado a la orden" : ""),
     notes: header.notes?.trim() || undefined,
     ...(hasPersistedTotals ? { subtotal: Number(header.subtotal), discountTotal: discount, taxTotal: Number(header.taxTotal), total: Number(header.total) } : {}),
-    items: lines.map((line, index) => ({
-      id: line.id,
-      name: line.description,
-      description: line.code ?? "",
-      quantity: Number(line.quantity),
-      amount: persistedLines[index]!.amount,
-      ...(persistedLines[index]!.persisted ? { discountAmount: persistedLines[index]!.discountAmount, netAmount: persistedLines[index]!.netAmount, taxRate: persistedLines[index]!.taxRate, taxAmount: persistedLines[index]!.taxAmount, total: persistedLines[index]!.total, taxable: persistedLines[index]!.taxable } : {}),
-    })),
+    items: lines.map((line, index) => {
+      const code = line.code?.trim();
+      const description = line.description?.trim();
+      let itemName = description || "Servicio";
+      let itemDesc = code || description || "-";
+
+      if (code && code !== description) {
+        itemName = code;
+        itemDesc = description || code;
+      } else if (!code && description) {
+        itemName = "Ítem libre";
+        itemDesc = description;
+      }
+
+      return {
+        id: line.id,
+        name: itemName,
+        description: itemDesc,
+        quantity: Number(line.quantity),
+        amount: persistedLines[index]!.amount,
+        ...(persistedLines[index]!.persisted ? { discountAmount: persistedLines[index]!.discountAmount, netAmount: persistedLines[index]!.netAmount, taxRate: persistedLines[index]!.taxRate, taxAmount: persistedLines[index]!.taxAmount, total: persistedLines[index]!.total, taxable: persistedLines[index]!.taxable } : {}),
+      };
+    }),
     createdAt: header.createdAt.toISOString(),
   };
 }

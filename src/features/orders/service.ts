@@ -59,12 +59,14 @@ async function resolveCartLines(tx: Parameters<Parameters<ReturnType<typeof getD
   for (const line of input.lines) {
     if (line.catalogItemId === null) {
       const isExempt = line.taxCategory === "exempt" || line.taxRate === 0;
+      const itemName = line.name?.trim() || null;
+      const itemDesc = line.description?.trim() || itemName || "Ítem libre";
       resolved.push({
         item: null,
         line: {
           catalogItemId: undefined,
-          code: null,
-          description: line.description!,
+          code: itemName ? itemName.slice(0, 50) : null,
+          description: itemDesc.slice(0, 240),
           quantity: line.quantity,
           unitPrice: clp(line.unitPrice),
           taxRate: isExempt ? 0 : 19,

@@ -29,6 +29,8 @@ describe("order free-line UI", () => {
     expect(html).toContain("Instalación especial");
     expect(html).toContain("Con IVA (19%)");
     expect(html).toContain("Exento");
+    expect(html).toContain("Ítem / Concepto");
+    expect(html).toContain("Descripción del ítem (alcance, detalles...)");
   });
 
   it("renders exempt treatment for a free line with 0 tax rate", () => {

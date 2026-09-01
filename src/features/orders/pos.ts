@@ -3,6 +3,7 @@ export type PosDraftLine = {
   quantity: number;
   unitPrice: number;
   name?: string;
+  description?: string;
   total?: number;
   taxCategory?: "taxable" | "exempt";
   taxRate?: number;
@@ -21,11 +22,12 @@ export type PosDraft = {
 export function buildOrderCartPayload(draft: PosDraft) {
   return {
     clientId: draft.clientId,
-    lines: draft.lines.map(({ catalogItemId, quantity, unitPrice, name, taxCategory, taxRate }) => ({
+    lines: draft.lines.map(({ catalogItemId, quantity, unitPrice, name, description, taxCategory, taxRate }) => ({
       catalogItemId,
       ...(catalogItemId === null
         ? {
-            description: name?.trim() ?? "",
+            name: name?.trim() ?? "",
+            description: (description?.trim() || name?.trim()) ?? "",
             ...(taxCategory !== undefined ? { taxCategory } : {}),
             ...(taxRate !== undefined ? { taxRate } : {}),
           }

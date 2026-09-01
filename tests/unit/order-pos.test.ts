@@ -51,26 +51,26 @@ describe("payment-order POS", () => {
     expect(JSON.stringify(payload)).not.toContain("No confiar");
   });
 
-  it("serializes the description only for a free line", () => {
+  it("serializes name and description for a free line", () => {
     const payload = buildOrderCartPayload({
       clientId: "client-id",
-      lines: [{ catalogItemId: null, quantity: 1, unitPrice: 0, name: "Instalación especial", total: 999999 }],
+      lines: [{ catalogItemId: null, quantity: 1, unitPrice: 0, name: "Instalación", description: "Instalación y configuración de cámaras", total: 999999 }],
       discountPercent: 0,
       discountReason: "",
     });
 
-    expect(payload.lines).toEqual([{ catalogItemId: null, description: "Instalación especial", quantity: 1, unitPrice: 0 }]);
+    expect(payload.lines).toEqual([{ catalogItemId: null, name: "Instalación", description: "Instalación y configuración de cámaras", quantity: 1, unitPrice: 0 }]);
   });
 
   it("serializes taxCategory and taxRate for an exempt free line", () => {
     const payload = buildOrderCartPayload({
       clientId: "client-id",
-      lines: [{ catalogItemId: null, quantity: 1, unitPrice: 5000, name: "Asesoría exenta", taxCategory: "exempt", taxRate: 0 }],
+      lines: [{ catalogItemId: null, quantity: 1, unitPrice: 5000, name: "Asesoría", description: "Asesoría tributaria exenta", taxCategory: "exempt", taxRate: 0 }],
       discountPercent: 0,
       discountReason: "",
     });
 
-    expect(payload.lines).toEqual([{ catalogItemId: null, description: "Asesoría exenta", taxCategory: "exempt", taxRate: 0, quantity: 1, unitPrice: 5000 }]);
+    expect(payload.lines).toEqual([{ catalogItemId: null, name: "Asesoría", description: "Asesoría tributaria exenta", taxCategory: "exempt", taxRate: 0, quantity: 1, unitPrice: 5000 }]);
   });
 
   it("bounds active client and catalog searches", async () => {

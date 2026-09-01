@@ -28,7 +28,7 @@ describe("order PDF adapter", () => {
       customerRut: "77.111.222-3",
       customerEmail: "pagos@cliente.cl",
       invoice: true,
-      items: [{ name: "Hosting anual", description: "HOST-01", quantity: 2, amount: 100000 }],
+      items: [{ name: "HOST-01", description: "Hosting anual", quantity: 2, amount: 100000 }],
     });
     expect(INTELLY_PDF_SETTINGS.companyName).toBe("INTELLY SPA");
     expect(INTELLY_PDF_SETTINGS.bankName).toBe("Banco de Chile");

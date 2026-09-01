@@ -100,6 +100,20 @@ describe("payment-order cart contract", () => {
     expect(lineBatch[0]).toMatchObject({ catalogItemId: null, code: null, description: "Instalación especial", quantity: "1", unitPrice: "0", taxRate: "19", subtotal: "0", taxAmount: "0", total: "0" });
   });
 
+  it("persists a free line with distinct name and description", async () => {
+    const { inserts } = configureDb([[{ id: clientId, status: "active" }]]);
+
+    await createOrderFromCart({
+      clientId,
+      lines: [{ catalogItemId: null, name: "Instalación", description: "Instalación y configuración de cámaras", quantity: 1, unitPrice: 50000 }],
+      discountPercent: 0,
+      discountReason: "",
+    }, "user-id", "operator");
+
+    const lineBatch = inserts.find((value) => Array.isArray(value) && value.some((item) => item.description === "Instalación y configuración de cámaras")) as Array<Record<string, unknown>>;
+    expect(lineBatch[0]).toMatchObject({ catalogItemId: null, code: "Instalación", description: "Instalación y configuración de cámaras", quantity: "1", unitPrice: "50000", taxRate: "19", subtotal: "50000", taxAmount: "9500", total: "59500" });
+  });
+
   it("persists an exempt free line with zero tax rate and amount", async () => {
     const { inserts } = configureDb([[{ id: clientId, status: "active" }]]);
 
