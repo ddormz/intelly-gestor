@@ -62,6 +62,17 @@ describe("payment-order POS", () => {
     expect(payload.lines).toEqual([{ catalogItemId: null, description: "Instalación especial", quantity: 1, unitPrice: 0 }]);
   });
 
+  it("serializes taxCategory and taxRate for an exempt free line", () => {
+    const payload = buildOrderCartPayload({
+      clientId: "client-id",
+      lines: [{ catalogItemId: null, quantity: 1, unitPrice: 5000, name: "Asesoría exenta", taxCategory: "exempt", taxRate: 0 }],
+      discountPercent: 0,
+      discountReason: "",
+    });
+
+    expect(payload.lines).toEqual([{ catalogItemId: null, description: "Asesoría exenta", taxCategory: "exempt", taxRate: 0, quantity: 1, unitPrice: 5000 }]);
+  });
+
   it("bounds active client and catalog searches", async () => {
     const clientCalls = configureSearchDb([{ id: "client-id", legalName: "Cliente", taxId: "76.123.456-0", email: "a@b.cl" }]);
     await expect(searchActiveClients("cliente")).resolves.toHaveLength(1);

@@ -5,6 +5,8 @@ const cartLineSchema = z.object({
   description: z.string().trim().max(240).optional(),
   quantity: z.coerce.number().int().min(1).max(999),
   unitPrice: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  taxCategory: z.enum(["taxable", "exempt"]).optional(),
+  taxRate: z.coerce.number().min(0).max(100).optional(),
 }).superRefine((line, context) => {
   if (line.catalogItemId === null && !line.description) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["description"], message: "Describe el ítem libre." });

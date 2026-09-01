@@ -58,7 +58,19 @@ async function resolveCartLines(tx: Parameters<Parameters<ReturnType<typeof getD
   const resolved: { item: typeof catalogItems["$inferSelect"] | null; line: OrderLineInput }[] = [];
   for (const line of input.lines) {
     if (line.catalogItemId === null) {
-      resolved.push({ item: null, line: { catalogItemId: undefined, code: null, description: line.description!, quantity: line.quantity, unitPrice: clp(line.unitPrice), taxRate: 19, taxCategory: "taxable" } });
+      const isExempt = line.taxCategory === "exempt" || line.taxRate === 0;
+      resolved.push({
+        item: null,
+        line: {
+          catalogItemId: undefined,
+          code: null,
+          description: line.description!,
+          quantity: line.quantity,
+          unitPrice: clp(line.unitPrice),
+          taxRate: isExempt ? 0 : 19,
+          taxCategory: isExempt ? "exempt" : "taxable",
+        },
+      });
       continue;
     }
     const [item] = await tx.select().from(catalogItems).where(eq(catalogItems.id, line.catalogItemId)).limit(1).for("update").execute();

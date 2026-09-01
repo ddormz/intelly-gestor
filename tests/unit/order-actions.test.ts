@@ -100,6 +100,20 @@ describe("payment-order cart contract", () => {
     expect(lineBatch[0]).toMatchObject({ catalogItemId: null, code: null, description: "Instalación especial", quantity: "1", unitPrice: "0", taxRate: "19", subtotal: "0", taxAmount: "0", total: "0" });
   });
 
+  it("persists an exempt free line with zero tax rate and amount", async () => {
+    const { inserts } = configureDb([[{ id: clientId, status: "active" }]]);
+
+    await createOrderFromCart({
+      clientId,
+      lines: [{ catalogItemId: null, description: "Servicio exento", taxCategory: "exempt", taxRate: 0, quantity: 2, unitPrice: 1000 }],
+      discountPercent: 0,
+      discountReason: "",
+    }, "user-id", "operator");
+
+    const lineBatch = inserts.find((value) => Array.isArray(value) && value.some((item) => item.description === "Servicio exento")) as Array<Record<string, unknown>>;
+    expect(lineBatch[0]).toMatchObject({ catalogItemId: null, code: null, description: "Servicio exento", quantity: "2", unitPrice: "1000", taxRate: "0", subtotal: "2000", taxAmount: "0", total: "2000" });
+  });
+
   it("updates a persisted free line without resolving a catalog item", async () => {
     const { inserts } = configureDb([
       [{ id: "order-id", status: "draft", version: 1, clientId }],
@@ -117,6 +131,25 @@ describe("payment-order cart contract", () => {
 
     const lineBatch = inserts.find((value) => Array.isArray(value) && value.some((item) => item.description === "Nueva instalación")) as Array<Record<string, unknown>>;
     expect(lineBatch[0]).toMatchObject({ catalogItemId: null, description: "Nueva instalación", unitPrice: "2500", taxRate: "19", taxAmount: "475", total: "2975" });
+  });
+
+  it("updates a persisted free line to exempt", async () => {
+    const { inserts } = configureDb([
+      [{ id: "order-id", status: "draft", version: 1, clientId }],
+      [{ id: clientId, status: "active" }],
+      [{ id: "old-line", paymentOrderId: "order-id", catalogItemId: null, code: null, description: "Anterior", quantity: "1", unitPrice: "0", discountAmount: "0", taxRate: "19", subtotal: "0", taxAmount: "0", total: "0", sortOrder: 0 }],
+    ]);
+
+    await updateOrderFromCart({
+      id: "order-id",
+      clientId,
+      lines: [{ catalogItemId: null, description: "Servicio exento actualizado", taxCategory: "exempt", quantity: 1, unitPrice: 2500 }],
+      discountPercent: 0,
+      discountReason: "",
+    }, "user-id", 1, "operator");
+
+    const lineBatch = inserts.find((value) => Array.isArray(value) && value.some((item) => item.description === "Servicio exento actualizado")) as Array<Record<string, unknown>>;
+    expect(lineBatch[0]).toMatchObject({ catalogItemId: null, description: "Servicio exento actualizado", unitPrice: "2500", taxRate: "0", taxAmount: "0", total: "2500" });
   });
 
   it("allows a bounded operator override and rejects an unsafe override", async () => {

@@ -27,6 +27,25 @@ describe("order free-line UI", () => {
     }));
 
     expect(html).toContain("Instalación especial");
-    expect(html).toContain("IVA 19%");
+    expect(html).toContain("Con IVA (19%)");
+    expect(html).toContain("Exento");
+  });
+
+  it("renders exempt treatment for a free line with 0 tax rate", () => {
+    const html = renderToStaticMarkup(createElement(OrderPos, {
+      action,
+      initial: {
+        id: "order-id-2",
+        status: "draft",
+        clientId: "client-id",
+        clientName: "Cliente",
+        clientEmail: "cliente@example.com",
+        lines: [{ id: "free-line-exempt", catalogItemId: null, code: null, description: "Servicio libre exento", quantity: 1, unitPrice: 1000, taxRate: 0 }],
+      },
+    }));
+
+    expect(html).toContain("Servicio libre exento");
+    expect(html).toContain("selected");
+    expect(html).toContain("Exento");
   });
 });
