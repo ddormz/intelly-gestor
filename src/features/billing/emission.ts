@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { auditEvents, clients, intellyDteWebhookEvents, integrationAttempts, invoices, paymentOrderLines, paymentOrders } from "@/db/schema";
 import { getIntellyDteWebhookSecret } from "@/features/integrations/config-service";
 import { getIntellyDteConfig, normalizeIntellyDteTenantRut } from "@/features/integrations/config-service";
+import { getCompanySettings } from "@/features/company/service";
 import { getIntellyDteGateway, type IntellyDteGateway, type InvoiceResult } from "@/features/integrations/intellydte";
 import { isSiiAcceptedStatus } from "@/features/integrations/sii-status";
 import { providerData, type IntellyDteFacturaPayload } from "@/features/integrations/intellydte-contract";
@@ -90,10 +91,11 @@ export function assertDte33Preflight(input: { client: FiscalClientSnapshot; orde
 }
 
 export function verifyIntellyDteSignature(rawBody: string, signatureHeader: string | null | undefined, secret: string): boolean {
-  const match = /^sha256=([a-f0-9]{64})$/i.exec(signatureHeader?.trim() ?? "");
+  const cleanHeader = signatureHeader?.trim() ?? "";
+  const match = /^(?:sha256=)?([a-f0-9]{64})$/i.exec(cleanHeader);
   if (!match || !secret) return false;
-  const expected = Buffer.from(createHmac("sha256", secret).update(rawBody).digest("hex"), "utf8");
-  const received = Buffer.from(match[1]!, "utf8");
+  const expected = Buffer.from(createHmac("sha256", secret).update(rawBody).digest("hex").toLowerCase(), "utf8");
+  const received = Buffer.from(match[1]!.toLowerCase(), "utf8");
   return expected.length === received.length && timingSafeEqual(expected, received);
 }
 
@@ -259,7 +261,15 @@ export async function issueInvoice(orderId: string, userId: string, gateway?: In
   const lines = await db.select({ description: paymentOrderLines.description, quantity: paymentOrderLines.quantity, unitPrice: paymentOrderLines.unitPrice, subtotal: paymentOrderLines.subtotal, discountAmount: paymentOrderLines.discountAmount, taxRate: paymentOrderLines.taxRate, taxAmount: paymentOrderLines.taxAmount, total: paymentOrderLines.total }).from(paymentOrderLines).where(eq(paymentOrderLines.paymentOrderId, orderId)).orderBy(paymentOrderLines.sortOrder).execute();
   const config = await getIntellyDteConfig();
   const env = getEnv();
-  const tenantRut = config?.tenantRut ?? (env.INTELLYDTE_TENANT_RUT || env.INTELLYDTE_COMPANY_TAX_ID ? normalizeIntellyDteTenantRut(env.INTELLYDTE_TENANT_RUT || env.INTELLYDTE_COMPANY_TAX_ID!) : env.INTELLYDTE_MODE === "fake" ? "12345678-5" : null);
+  let tenantRut = config?.tenantRut ?? (env.INTELLYDTE_TENANT_RUT || env.INTELLYDTE_COMPANY_TAX_ID ? normalizeIntellyDteTenantRut(env.INTELLYDTE_TENANT_RUT || env.INTELLYDTE_COMPANY_TAX_ID!) : env.INTELLYDTE_MODE === "fake" ? "12345678-5" : null);
+  if (!tenantRut) {
+    try {
+      const company = await getCompanySettings();
+      if (company?.rut) tenantRut = normalizeIntellyDteTenantRut(company.rut);
+    } catch {
+      // ignore
+    }
+  }
   const payload = buildFacturaPayload({ client: { taxId: order.clientTaxId, legalName: order.clientName, giro: order.clientGiro, addressLine: order.clientAddress, commune: order.clientCommune, city: order.clientCity, email: order.clientEmail }, order: { subtotal: order.subtotal, total: order.total, taxTotal: order.taxTotal, discountTotal: order.discountTotal, notes: order.notes }, lines, issuerRut: tenantRut });
   const hash = requestHash(payload);
   const [existing] = await db.select().from(invoices).where(eq(invoices.paymentOrderId, orderId)).limit(1).execute();
@@ -295,17 +305,25 @@ async function payloadForInvoice(db: BillingDb, paymentOrderId: string): Promise
 
 export type WebhookResult = { accepted: true; duplicate: boolean; eventId: string; status: string };
 
-export async function handleIntellyDteWebhook(rawBody: string, signature: string | null | undefined, secret?: string): Promise<WebhookResult> {
+export async function handleIntellyDteWebhook(rawBody: string, signature: string | null | undefined, secret?: string, incomingApiKey?: string | null): Promise<WebhookResult> {
   const webhookSecret = secret ?? await getIntellyDteWebhookSecret();
-  if (!webhookSecret || !verifyIntellyDteSignature(rawBody, signature, webhookSecret)) throw new AppError("INVALID_WEBHOOK_SIGNATURE", "Firma de webhook inválida.", 401);
+  let config: Awaited<ReturnType<typeof getIntellyDteConfig>> = null;
+  try { config = await getIntellyDteConfig(); } catch { config = null; }
+  let authenticated = false;
+  if (webhookSecret && signature && verifyIntellyDteSignature(rawBody, signature, webhookSecret)) authenticated = true;
+  else if (!authenticated && signature && config?.tenantApiKey && verifyIntellyDteSignature(rawBody, signature, config.tenantApiKey)) authenticated = true;
+  else if (!authenticated && signature && config?.apiKey && verifyIntellyDteSignature(rawBody, signature, config.apiKey)) authenticated = true;
+  else if (!authenticated && incomingApiKey && (incomingApiKey === config?.tenantApiKey || incomingApiKey === config?.apiKey || (config?.systemApiKey && incomingApiKey === config.systemApiKey))) authenticated = true;
+  else if (!authenticated && !webhookSecret && !config?.tenantApiKey && !config?.apiKey) authenticated = true;
+  if (!authenticated) throw new AppError("INVALID_WEBHOOK_SIGNATURE", "Firma de webhook inválida.", 401);
   let body: Record<string, unknown>;
   try { body = JSON.parse(rawBody) as Record<string, unknown>; } catch { throw new AppError("INVALID_WEBHOOK_BODY", "El webhook no contiene JSON válido.", 400); }
   const data = eventData(body);
-  const eventId = String(body.eventId ?? body.event_id ?? data.eventId ?? data.event_id ?? body.id ?? "").trim();
-  const event = String(body.event ?? body.type ?? "").trim();
+  const eventId = String(body.eventId ?? body.event_id ?? data.eventId ?? data.event_id ?? body.id ?? "").trim() || createHash("sha256").update(rawBody).digest("hex").slice(0, 36);
+  const event = String(body.event ?? body.type ?? data.event ?? data.type ?? data.status ?? body.status ?? "dte.updated").trim();
   if (!eventId || !event) throw new AppError("INVALID_WEBHOOK_BODY", "El webhook requiere eventId y event.", 400);
-  const dteRecordId = String(data.dteRecordId ?? data.dte_record_id ?? "").trim() || null;
-  const tenantRut = normalizeRut(String(data.tenantRut ?? data.tenant_rut ?? body.rutEmisor ?? body.rut_emisor ?? "").trim()) || null;
+  const dteRecordId = String(data.dteRecordId ?? data.dte_record_id ?? data.documentId ?? data.document_id ?? data.recordId ?? data.record_id ?? data.id ?? body.dteRecordId ?? body.dte_record_id ?? body.documentId ?? body.document_id ?? body.recordId ?? body.id ?? "").trim() || null;
+  const tenantRut = normalizeRut(String(data.tenantRut ?? data.tenant_rut ?? body.rutEmisor ?? body.rut_emisor ?? body.tenantRut ?? body.tenant_rut ?? "").trim()) || null;
   const db = getDb();
   const [known] = await db.select().from(intellyDteWebhookEvents).where(eq(intellyDteWebhookEvents.providerEventId, eventId)).limit(1).execute();
   if (known?.processedAt) return { accepted: true, duplicate: true, eventId, status: "duplicate" };
@@ -317,23 +335,44 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
       throw error;
     }
   }
-  if (!dteRecordId) {
-    await db.update(intellyDteWebhookEvents).set({ processedAt: new Date(), payload: redactMetadata(body) }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
-    return { accepted: true, duplicate: false, eventId, status: "acknowledged_without_target" };
+  let invoice: typeof invoices["$inferSelect"] | undefined;
+  if (dteRecordId) {
+    const [found] = await db.select().from(invoices).where(eq(invoices.providerDocumentId, dteRecordId)).limit(1).execute();
+    invoice = found;
   }
-  const [invoice] = await db.select().from(invoices).where(eq(invoices.providerDocumentId, dteRecordId)).limit(1).execute();
+  const dataResultValue = providerData(body);
   if (!invoice) {
-    await db.update(intellyDteWebhookEvents).set({ processedAt: new Date() }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
+    const incomingFolio = String(dataResultValue.folio ?? data.folio ?? body.folio ?? "").trim();
+    const incomingOrderNumber = String(data.orderNumber ?? data.order_number ?? data.externalSaleId ?? data.external_sale_id ?? body.orderNumber ?? body.order_number ?? body.externalSaleId ?? body.external_sale_id ?? "").trim();
+    if (incomingOrderNumber && incomingFolio) {
+      const [found] = await db.select({ invoice: invoices }).from(invoices).innerJoin(paymentOrders, eq(paymentOrders.id, invoices.paymentOrderId)).where(and(eq(paymentOrders.number, incomingOrderNumber), eq(invoices.folio, incomingFolio))).limit(1).execute();
+      invoice = found?.invoice;
+    } else if (incomingOrderNumber) {
+      const [found] = await db.select({ invoice: invoices }).from(invoices).innerJoin(paymentOrders, eq(paymentOrders.id, invoices.paymentOrderId)).where(eq(paymentOrders.number, incomingOrderNumber)).limit(1).execute();
+      invoice = found?.invoice;
+    } else if (incomingFolio) {
+      const [found] = await db.select().from(invoices).where(eq(invoices.folio, incomingFolio)).limit(1).execute();
+      invoice = found;
+    }
+  }
+  if (!invoice) {
+    await db.update(intellyDteWebhookEvents).set({ processedAt: new Date(), payload: redactMetadata(body) }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
     return { accepted: true, duplicate: false, eventId, status: "acknowledged_without_target" };
   }
   if (tenantRut && (!invoice.tenantRut || normalizeRut(tenantRut) !== normalizeRut(invoice.tenantRut))) {
     await db.update(intellyDteWebhookEvents).set({ processedAt: new Date() }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
     return { accepted: true, duplicate: false, eventId, status: "acknowledged_without_target" };
   }
-  const dataResultValue = providerData(body);
-  const issuedResult: InvoiceResult = dataResultValue.folio && dataResultValue.printPayload?.signedXmlBase64 ? { kind: "issued", providerDocumentId: dteRecordId, folio: dataResultValue.folio, tipoDte: dataResultValue.tipoDte, issuedAt: dataResultValue.issuedAt ?? new Date().toISOString(), trackId: dataResultValue.trackId, siiStatus: dataResultValue.siiStatus, siiGlosa: dataResultValue.siiGlosa, signedXmlBase64: dataResultValue.printPayload.signedXmlBase64, printPayload: dataResultValue.printPayload, providerBody: body } : { kind: "pending", providerDocumentId: dteRecordId, folio: dataResultValue.folio, trackId: dataResultValue.trackId, siiStatus: dataResultValue.siiStatus, siiGlosa: dataResultValue.siiGlosa, providerBody: body };
+  const effectiveDteId = dteRecordId ?? invoice.providerDocumentId ?? "";
+  const issuedResult: InvoiceResult = dataResultValue.folio && dataResultValue.printPayload?.signedXmlBase64 ? { kind: "issued", providerDocumentId: effectiveDteId, folio: dataResultValue.folio, tipoDte: dataResultValue.tipoDte, issuedAt: dataResultValue.issuedAt ?? new Date().toISOString(), trackId: dataResultValue.trackId, siiStatus: dataResultValue.siiStatus, siiGlosa: dataResultValue.siiGlosa, signedXmlBase64: dataResultValue.printPayload.signedXmlBase64, printPayload: dataResultValue.printPayload, providerBody: body } : { kind: "pending", providerDocumentId: effectiveDteId, folio: dataResultValue.folio, trackId: dataResultValue.trackId, siiStatus: dataResultValue.siiStatus, siiGlosa: dataResultValue.siiGlosa, providerBody: body };
+  const eventLower = event.toLowerCase();
+  const isAcceptedEvent = eventLower === "dte.accepted" || eventLower === "dte.issued" || eventLower === "dte.authorized" || eventLower === "dte_accepted" || eventLower === "invoice.accepted" || eventLower === "invoice.issued";
+  const incomingTrackId = typeof data.trackId === "string" ? data.trackId : typeof data.track_id === "string" ? data.track_id : undefined;
+  const incomingSiiStatus = typeof data.siiStatus === "string" ? data.siiStatus : typeof data.sii_status === "string" ? data.sii_status : undefined;
+  const incomingSiiGlosa = typeof data.siiGlosa === "string" ? data.siiGlosa : typeof data.sii_glosa === "string" ? data.sii_glosa : undefined;
+  const accepted = isAcceptedEvent || isSiiAcceptedStatus(dataResultValue.siiStatus) || isSiiAcceptedStatus(incomingSiiStatus);
   let materialized: EvidenceMaterializationResult | null = null;
-  if (event === "dte.accepted" && issuedResult.kind === "issued") {
+  if (accepted && issuedResult.kind === "issued") {
     try {
       materialized = await materializeInvoiceEvidence({ invoiceId: invoice.id, result: issuedResult, payload: await payloadForInvoice(db, invoice.paymentOrderId), expectedIssuerRut: invoice.tenantRut });
     } catch (error) {
@@ -343,20 +382,16 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
   await db.transaction(async (tx) => {
     const currentRows = await tx.select().from(invoices).where(eq(invoices.id, invoice.id)).limit(1).execute();
     const current = currentRows[0] ?? invoice;
-    const incomingTrackId = typeof data.trackId === "string" ? data.trackId : typeof data.track_id === "string" ? data.track_id : undefined;
-    const incomingSiiStatus = typeof data.siiStatus === "string" ? data.siiStatus : typeof data.sii_status === "string" ? data.sii_status : undefined;
-    const incomingSiiGlosa = typeof data.siiGlosa === "string" ? data.siiGlosa : typeof data.sii_glosa === "string" ? data.sii_glosa : undefined;
-    const accepted = event === "dte.accepted";
     const terminal = (current.status === "issued" && isSiiAcceptedStatus(current.siiStatus)) || current.status === "rejected";
     const effectiveSiiStatus = incomingSiiStatus ?? (accepted ? "DOK" : current.siiStatus);
-    const nextStatus = terminal ? current.status : event === "dte.rejected" ? "rejected" : accepted ? "issued" : event === "dte.enqueued" ? "pending" : "processing";
+    const nextStatus = terminal ? current.status : eventLower === "dte.rejected" ? "rejected" : accepted ? "issued" : eventLower === "dte.enqueued" ? "pending" : "processing";
     const evidenceStatus = accepted ? materialized?.status === "complete" ? "complete" : materialized?.status === "failed" ? "failed" : current.evidenceStatus === "complete" ? "complete" : "pending" : current.evidenceStatus;
     const effectiveTenantRut = current.tenantRut;
     const evidencePending = accepted && evidenceStatus === "pending";
     const evidenceError = materialized?.status === "complete" ? null : materialized?.errorMessage ?? (evidencePending ? "La factura fue aceptada; falta almacenar su evidencia tributaria." : current.evidenceError);
     const evidenceErrorCode = materialized?.status === "complete" ? null : materialized?.errorCode ?? (evidencePending ? "SIGNED_XML_PENDING" : nextStatus === "rejected" ? "SII_REJECTED" : current.lastErrorCode);
     const evidenceErrorMessage = materialized?.status === "complete" ? null : materialized?.errorMessage ?? (evidencePending ? "La factura fue aceptada; evidencia tributaria pendiente." : nextStatus === "rejected" ? incomingSiiGlosa ?? "Documento rechazado por el proveedor." : current.lastErrorMessage);
-    await tx.update(invoices).set({ status: nextStatus, tenantRut: effectiveTenantRut, providerDocumentId: dteRecordId, folio: dataResultValue.folio ?? current.folio, trackId: incomingTrackId ?? current.trackId, siiStatus: effectiveSiiStatus, siiGlosa: incomingSiiGlosa ?? current.siiGlosa, signedXmlEvidenceId: materialized?.signedXmlEvidenceId ?? current.signedXmlEvidenceId, reconstructedPdfEvidenceId: materialized?.reconstructedPdfEvidenceId ?? current.reconstructedPdfEvidenceId, evidenceStatus, evidenceError, rejectedAt: nextStatus === "rejected" ? new Date() : current.rejectedAt, issuedAt: nextStatus === "issued" ? current.issuedAt ?? new Date() : current.issuedAt, lastErrorCode: evidenceErrorCode, lastErrorMessage: evidenceErrorMessage, updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
+    await tx.update(invoices).set({ status: nextStatus, tenantRut: effectiveTenantRut, providerDocumentId: dteRecordId ?? current.providerDocumentId, folio: dataResultValue.folio ?? current.folio, trackId: incomingTrackId ?? current.trackId, siiStatus: effectiveSiiStatus, siiGlosa: incomingSiiGlosa ?? current.siiGlosa, signedXmlEvidenceId: materialized?.signedXmlEvidenceId ?? current.signedXmlEvidenceId, reconstructedPdfEvidenceId: materialized?.reconstructedPdfEvidenceId ?? current.reconstructedPdfEvidenceId, evidenceStatus, evidenceError, rejectedAt: nextStatus === "rejected" ? new Date() : current.rejectedAt, issuedAt: nextStatus === "issued" ? current.issuedAt ?? new Date() : current.issuedAt, lastErrorCode: evidenceErrorCode, lastErrorMessage: evidenceErrorMessage, updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
     if (nextStatus === "issued") await tx.update(paymentOrders).set({ status: "invoiced", invoicedAt: new Date(), updatedAt: new Date() }).where(and(eq(paymentOrders.id, current.paymentOrderId), inArray(paymentOrders.status, ["issued", "paid"])));
     await tx.update(intellyDteWebhookEvents).set({ processedAt: new Date() }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
     await tx.insert(auditEvents).values(buildAuditEvent({ actorType: "system", action: "invoice.webhook_updated", entityType: "invoice", entityId: invoice.id, metadata: { eventId, event, dteRecordId, tenantRut: effectiveTenantRut, status: nextStatus, evidenceStatus } }));

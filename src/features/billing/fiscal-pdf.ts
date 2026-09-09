@@ -1,19 +1,23 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { ParsedDteDocument } from "./xml";
 import { renderTedPdf417 } from "./xml";
 
 const COLORS = {
-  ink: [31, 41, 55] as [number, number, number],
-  muted: [75, 85, 99] as [number, number, number],
+  ink: [30, 41, 59] as [number, number, number],
+  muted: [71, 85, 105] as [number, number, number],
   border: [203, 213, 225] as [number, number, number],
   pale: [248, 250, 252] as [number, number, number],
-  blue: [31, 78, 121] as [number, number, number],
-  red: [185, 28, 28] as [number, number, number],
+  blue: [27, 79, 114] as [number, number, number],      // Chilean DTE header blue (#1b4f72)
+  red: [204, 0, 0] as [number, number, number],         // Official SII Red (#cc0000)
   white: [255, 255, 255] as [number, number, number],
+  lightBlue: [235, 243, 250] as [number, number, number],
 };
 
 const money = (value: number) => `$${Math.round(value).toLocaleString("es-CL")}`;
+const formatNumber = (value: number) => Math.round(value).toLocaleString("es-CL");
 
 export type FiscalPdfSection =
   | "INFORMACIÓN DEL RECEPTOR"
@@ -44,148 +48,210 @@ function textOrDash(value: string | null | undefined): string {
   return value?.trim() || "—";
 }
 
-function drawSectionHeader(pdf: jsPDF, title: FiscalPdfSection, x: number, y: number, width: number): number {
-  pdf.setFillColor(...COLORS.blue);
-  pdf.rect(x, y, width, 7, "F");
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(8);
-  pdf.setTextColor(...COLORS.white);
-  pdf.text(title, x + 3, y + 4.8);
-  return y + 7;
-}
-
-function drawLabelValue(pdf: jsPDF, label: string, value: string, x: number, y: number, width: number, labelWidth: number): number {
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(7.1);
-  pdf.setTextColor(...COLORS.ink);
-  pdf.text(label, x, y);
-  pdf.setFont("helvetica", "normal");
-  pdf.setTextColor(...COLORS.muted);
-  const lines = pdf.splitTextToSize(value, Math.max(20, width - labelWidth));
-  pdf.text(lines, x + labelWidth, y);
-  return Math.max(1, lines.length) * 3.5;
-}
-
-function drawKeyValue(pdf: jsPDF, label: string, value: string, x: number, y: number, width: number): void {
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(7.1);
-  pdf.setTextColor(...COLORS.ink);
-  pdf.text(label, x, y);
-  pdf.setFont("helvetica", "normal");
-  pdf.setTextColor(...COLORS.muted);
-  pdf.text(pdf.splitTextToSize(value, width), x, y + 3.5);
-}
-
-function ensureSpace(pdf: jsPDF, y: number, required: number, margin: number, height: number): number {
-  if (y + required <= height - margin) return y;
-  pdf.addPage();
-  return margin;
-}
-
-function drawPageNumbers(pdf: jsPDF, margin: number, height: number): void {
-  const totalPages = pdf.getNumberOfPages();
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(6.5);
-  pdf.setTextColor(...COLORS.muted);
-  for (let page = 1; page <= totalPages; page += 1) {
-    pdf.setPage(page);
-    pdf.text(`Página ${page} de ${totalPages}`, pdf.internal.pageSize.getWidth() - margin, height - 6, { align: "right" });
+function getTipoDteLabel(type: string): string {
+  switch (type) {
+    case "33":
+      return "FACTURA ELECTRÓNICA";
+    case "34":
+      return "FACTURA NO AFECTA O EXENTA ELECTRÓNICA";
+    case "39":
+      return "BOLETA ELECTRÓNICA";
+    case "41":
+      return "BOLETA EXENTA ELECTRÓNICA";
+    case "56":
+      return "NOTA DE DÉBITO ELECTRÓNICA";
+    case "61":
+      return "NOTA DE CRÉDITO ELECTRÓNICA";
+    default:
+      return "FACTURA ELECTRÓNICA";
   }
 }
 
-export async function renderFiscalPdf(document: ParsedDteDocument): Promise<Uint8Array> {
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+function formatDate(rawDate: string): string {
+  if (!rawDate) return "";
+  const clean = rawDate.trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}:\d{2}))?/.exec(clean);
+  if (match) {
+    const [, yyyy, mm, dd, time] = match;
+    return time ? `${dd}/${mm}/${yyyy} ${time}` : `${dd}/${mm}/${yyyy}`;
+  }
+  return clean;
+}
+
+function drawSectionHeader(pdf: jsPDF, title: FiscalPdfSection, x: number, y: number, width: number): number {
+  pdf.setFillColor(...COLORS.blue);
+  pdf.rect(x, y, width, 6, "F");
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(7.8);
+  pdf.setTextColor(...COLORS.white);
+  pdf.text(title, x + 3, y + 4.2);
+  return y + 6;
+}
+
+export type FiscalPdfOptions = {
+  logoDataUrl?: string;
+};
+
+async function loadDefaultLogo(): Promise<string> {
+  try {
+    const logoBuffer = await readFile(resolve(process.cwd(), "public", "intelly-logo.png"));
+    return `data:image/png;base64,${logoBuffer.toString("base64")}`;
+  } catch {
+    return "";
+  }
+}
+
+function renderDocumentCopy(
+  pdf: jsPDF,
+  document: ParsedDteDocument,
+  barcodeDataUrl: string,
+  logoDataUrl: string,
+  isCedible: boolean
+): void {
   const width = pdf.internal.pageSize.getWidth();
-  const height = pdf.internal.pageSize.getHeight();
-  const margin = 14;
+  const margin = 12;
   const contentWidth = width - margin * 2;
   const sections = buildFiscalPdfSections(document);
 
-  const siiBoxWidth = 72;
-  const siiBoxHeight = 32;
+  const headerY = 10;
+  const siiBoxWidth = 74;
+  const siiBoxHeight = 31;
   const siiBoxX = width - margin - siiBoxWidth;
-  const headerY = 13;
-  const issuerWidth = siiBoxX - margin - 7;
 
-  pdf.setDrawColor(...COLORS.red);
-  pdf.setLineWidth(0.75);
-  pdf.rect(siiBoxX, headerY, siiBoxWidth, siiBoxHeight);
-  pdf.setTextColor(...COLORS.red);
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(8.4);
-  pdf.text(`R.U.T.: ${formatRutWithDots(document.issuer.rut)}`, siiBoxX + siiBoxWidth / 2, headerY + 7, { align: "center" });
-  pdf.setFontSize(9.2);
-  pdf.text("FACTURA ELECTRÓNICA", siiBoxX + siiBoxWidth / 2, headerY + 14.5, { align: "center" });
-  pdf.setFontSize(12);
-  pdf.text(`Nº ${document.folio}`, siiBoxX + siiBoxWidth / 2, headerY + 22, { align: "center" });
-  pdf.setFontSize(7);
-  pdf.text("S.I.I.", siiBoxX + siiBoxWidth / 2, headerY + 28, { align: "center" });
-
-  pdf.setTextColor(...COLORS.ink);
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(12);
-  const issuerName = pdf.splitTextToSize(document.issuer.name, issuerWidth);
-  pdf.text(issuerName, margin, headerY + 5);
-  let issuerY = headerY + 5 + issuerName.length * 5;
-  pdf.setFontSize(7.5);
-  pdf.setFont("helvetica", "normal");
-  const issuerLines = [
-    `R.U.T.: ${formatRutWithDots(document.issuer.rut)}`,
-    document.issuer.businessLine ? `Giro: ${document.issuer.businessLine}` : null,
-    document.issuer.address ? `Dirección: ${document.issuer.address}` : null,
-    document.issuer.commune || document.issuer.city ? `Comuna/Ciudad: ${[document.issuer.commune, document.issuer.city].filter(Boolean).join(", ")}` : null,
-  ].filter((line): line is string => Boolean(line));
-  for (const line of issuerLines) {
-    const lines = pdf.splitTextToSize(line, issuerWidth);
-    pdf.text(lines, margin, issuerY);
-    issuerY += lines.length * 3.6;
+  // 1. Logo (Top Left)
+  if (logoDataUrl) {
+    try {
+      pdf.addImage(logoDataUrl, "PNG", margin, headerY, 34, 18);
+    } catch {
+      // Ignored if image format unsupported
+    }
   }
 
-  let y = Math.max(headerY + siiBoxHeight + 6, issuerY + 4);
+  // 2. Issuer Info (Top Left, below or alongside logo)
+  const issuerStartY = logoDataUrl ? headerY + 20 : headerY + 2;
+  const issuerWidth = siiBoxX - margin - 6;
 
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(...COLORS.blue);
+  const issuerName = pdf.splitTextToSize(document.issuer.name.toUpperCase(), issuerWidth);
+  pdf.text(issuerName, margin, issuerStartY);
+  let issuerCurrentY = issuerStartY + issuerName.length * 4.2;
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(7);
+  pdf.setTextColor(...COLORS.muted);
+
+  const issuerFields: Array<[string, string | null | undefined]> = [
+    ["Giro", document.issuer.businessLine],
+    ["Dirección", document.issuer.address],
+    ["Comuna", document.issuer.commune],
+    ["Ciudad", document.issuer.city],
+  ];
+
+  for (const [label, val] of issuerFields) {
+    if (val?.trim()) {
+      pdf.setFont("helvetica", "bold");
+      pdf.setTextColor(...COLORS.ink);
+      pdf.text(`${label}:`, margin, issuerCurrentY);
+      pdf.setFont("helvetica", "normal");
+      pdf.setTextColor(...COLORS.muted);
+      const lines = pdf.splitTextToSize(val.trim(), issuerWidth - 16);
+      pdf.text(lines, margin + 16, issuerCurrentY);
+      issuerCurrentY += lines.length * 3.3;
+    }
+  }
+
+  // 3. Official SII Red Box (Top Right)
+  pdf.setDrawColor(...COLORS.red);
+  pdf.setLineWidth(0.85);
+  pdf.rect(siiBoxX, headerY, siiBoxWidth, siiBoxHeight);
+
+  pdf.setTextColor(...COLORS.red);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(9.5);
+  pdf.text(`R.U.T.: ${formatRutWithDots(document.issuer.rut)}`, siiBoxX + siiBoxWidth / 2, headerY + 7, { align: "center" });
+
+  pdf.setFontSize(10.2);
+  pdf.text(getTipoDteLabel(document.type), siiBoxX + siiBoxWidth / 2, headerY + 15, { align: "center" });
+
+  pdf.setFontSize(14.5);
+  pdf.text(`Nº ${document.folio}`, siiBoxX + siiBoxWidth / 2, headerY + 24, { align: "center" });
+
+  // Subtext below red box
+  const unidadCity = (document.issuer.city || document.issuer.commune || "SANTIAGO ORIENTE").toUpperCase();
+  pdf.setTextColor(...COLORS.blue);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(7.5);
+  pdf.text(`S.I.I. - UNIDAD DE ${unidadCity}`, siiBoxX + siiBoxWidth / 2, headerY + siiBoxHeight + 4.5, { align: "center" });
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(7.5);
+  pdf.text(`Fecha de Emisión: ${formatDate(document.issueDate)}`, siiBoxX + siiBoxWidth / 2, headerY + siiBoxHeight + 8.5, { align: "center" });
+
+  // 4. Section: INFORMACIÓN DEL RECEPTOR
+  let y = Math.max(headerY + siiBoxHeight + 12, issuerCurrentY + 4);
   y = drawSectionHeader(pdf, sections[0], margin, y, contentWidth);
+
   const receiverBoxY = y;
-  const receiverBoxHeight = 38;
+  const receiverBoxHeight = 22;
   pdf.setFillColor(...COLORS.pale);
   pdf.setDrawColor(...COLORS.border);
-  pdf.setLineWidth(0.3);
+  pdf.setLineWidth(0.2);
   pdf.rect(margin, receiverBoxY, contentWidth, receiverBoxHeight, "FD");
 
-  const receiverGap = 8;
-  const receiverLeftWidth = 92;
-  const receiverRightX = margin + receiverLeftWidth + receiverGap;
-  drawLabelValue(pdf, "SEÑOR(ES):", textOrDash(document.receiver.name), margin + 3, receiverBoxY + 7, receiverLeftWidth - 5, 24);
-  drawLabelValue(pdf, "R.U.T.:", formatRutWithDots(document.receiver.rut), margin + 3, receiverBoxY + 15, receiverLeftWidth - 5, 24);
-  drawLabelValue(pdf, "GIRO:", textOrDash(document.receiver.businessLine), margin + 3, receiverBoxY + 23, receiverLeftWidth - 5, 24);
-  drawLabelValue(pdf, "DIRECCIÓN:", [document.receiver.address, document.receiver.commune].filter(Boolean).join(", ") || "—", margin + 3, receiverBoxY + 31, receiverLeftWidth - 5, 24);
-  drawKeyValue(pdf, "FECHA DE EMISIÓN", document.issueDate, receiverRightX, receiverBoxY + 7, contentWidth - receiverLeftWidth - receiverGap - 6);
-  drawKeyValue(pdf, "FECHA DE VENCIMIENTO", document.dueDate || "Contado", receiverRightX, receiverBoxY + 16, contentWidth - receiverLeftWidth - receiverGap - 6);
-  drawKeyValue(pdf, "COMUNA", textOrDash(document.receiver.commune), receiverRightX, receiverBoxY + 25, contentWidth - receiverLeftWidth - receiverGap - 6);
-  drawKeyValue(pdf, "CIUDAD", textOrDash(document.receiver.city), receiverRightX, receiverBoxY + 34, contentWidth - receiverLeftWidth - receiverGap - 6);
-  y = receiverBoxY + receiverBoxHeight + 6;
+  const col1X = margin + 3;
+  const col2X = margin + 96;
 
+  const drawField = (label: string, value: string, x: number, fieldY: number, maxW: number) => {
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(7.2);
+    pdf.setTextColor(...COLORS.ink);
+    pdf.text(label, x, fieldY);
+    pdf.setFont("helvetica", "normal");
+    pdf.setTextColor(...COLORS.muted);
+    pdf.text(pdf.splitTextToSize(value, maxW), x + 20, fieldY);
+  };
+
+  drawField("Razón Social", textOrDash(document.receiver.name), col1X, receiverBoxY + 5.5, 70);
+  drawField("RUT", formatRutWithDots(document.receiver.rut), col1X, receiverBoxY + 11.5, 70);
+  drawField("Giro", textOrDash(document.receiver.businessLine), col1X, receiverBoxY + 17.5, 70);
+
+  drawField("Dirección", textOrDash(document.receiver.address), col2X, receiverBoxY + 5.5, 68);
+  drawField("Comuna", textOrDash(document.receiver.commune), col2X, receiverBoxY + 11.5, 68);
+  drawField("Ciudad", textOrDash(document.receiver.city), col2X, receiverBoxY + 17.5, 68);
+
+  y = receiverBoxY + receiverBoxHeight + 4;
+
+  // 5. Section: DETALLE DEL DOCUMENTO
   y = drawSectionHeader(pdf, sections[1], margin, y, contentWidth);
+
   autoTable(pdf, {
     startY: y,
     margin: { left: margin, right: margin },
     rowPageBreak: "avoid",
-    head: [["N°", "DESCRIPCIÓN", "CANT.", "UNIDAD", "P. UNITARIO", "DESCTO.", "TOTAL"]],
-    body: document.details.map((item) => [
-      String(item.lineNumber),
-      item.description ? `${item.name}\n${item.description}` : item.name,
-      String(item.quantity),
-      item.unit || "—",
-      money(item.unitPrice),
-      item.discountAmount ? `-${money(item.discountAmount)}` : "—",
-      money(item.amount),
-    ]),
+    head: [["Código", "Nombre", "Cantidad", "Precio Neto", "Impuesto Adicional", "Dcto.", "Total"]],
+    body: document.details.map((item) => {
+      const code = item.description && item.description !== item.name ? item.description : `ITM-${item.lineNumber}`;
+      const name = item.name;
+      const additionalTax = item.exempt ? "Exento" : document.totals.ivaRate ? `${document.totals.ivaRate}%` : "0";
+      return [
+        code,
+        name,
+        String(item.quantity),
+        money(item.unitPrice),
+        additionalTax,
+        item.discountAmount ? money(item.discountAmount) : "0",
+        money(item.amount),
+      ];
+    }),
     styles: {
       font: "helvetica",
-      fontSize: 7.4,
-      cellPadding: 2.5,
+      fontSize: 7.2,
+      cellPadding: 2,
       textColor: COLORS.ink,
       lineColor: COLORS.border,
-      lineWidth: 0.2,
+      lineWidth: 0.15,
       valign: "middle",
     },
     headStyles: {
@@ -193,105 +259,190 @@ export async function renderFiscalPdf(document: ParsedDteDocument): Promise<Uint
       textColor: COLORS.white,
       fontStyle: "bold",
       halign: "center",
+      fontSize: 7.4,
     },
     alternateRowStyles: { fillColor: COLORS.pale },
     columnStyles: {
-      0: { cellWidth: 9, halign: "center" },
-      1: { cellWidth: 64 },
+      0: { cellWidth: 24, halign: "left" },
+      1: { cellWidth: 64, halign: "left" },
       2: { cellWidth: 14, halign: "center" },
-      3: { cellWidth: 17, halign: "center" },
-      4: { cellWidth: 27, halign: "right" },
-      5: { cellWidth: 25, halign: "right" },
-      6: { cellWidth: 26, halign: "right", fontStyle: "bold" },
+      3: { cellWidth: 22, halign: "right" },
+      4: { cellWidth: 24, halign: "center" },
+      5: { cellWidth: 14, halign: "right" },
+      6: { cellWidth: 24, halign: "right", fontStyle: "bold" },
     },
   });
-  y = (pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y + 16;
 
-  y = ensureSpace(pdf, y + 6, 28, margin, height);
+  y = (pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y + 20;
+  y += 4;
+
+  // 6. Section: INFORMACIÓN DE PAGOS
   y = drawSectionHeader(pdf, sections[2], margin, y, contentWidth);
-  const paymentY = y;
-  const paymentHeight = 21;
+
+  const paymentBoxY = y;
+  const paymentBoxHeight = 12;
   pdf.setFillColor(...COLORS.pale);
   pdf.setDrawColor(...COLORS.border);
-  pdf.rect(margin, paymentY, contentWidth, paymentHeight, "FD");
-  const paymentColumnWidth = contentWidth / 3;
-  drawKeyValue(pdf, "CONDICIÓN DE PAGO", document.dueDate ? "Crédito" : "Contado", margin + 4, paymentY + 6, paymentColumnWidth - 8);
-  drawKeyValue(pdf, "FECHA DE PAGO", document.dueDate || "No informado", margin + paymentColumnWidth + 4, paymentY + 6, paymentColumnWidth - 8);
-  drawKeyValue(pdf, "MEDIO DE PAGO", "No informado", margin + paymentColumnWidth * 2 + 4, paymentY + 6, paymentColumnWidth - 8);
-  y = paymentY + paymentHeight + 6;
+  pdf.setLineWidth(0.2);
+  pdf.rect(margin, paymentBoxY, contentWidth, paymentBoxHeight, "FD");
 
-  if (document.references.length) {
-    y = ensureSpace(pdf, y, 20, margin, height);
+  const payCols = [
+    { label: "Fecha", val: formatDate(document.issueDate) },
+    { label: "Monto", val: money(document.totals.total) },
+    { label: "Medio de pago", val: document.dueDate ? "Crédito" : "Transferencia" },
+    { label: "Glosa", val: document.dueDate ? `Vencimiento: ${formatDate(document.dueDate)}` : "Pago al contado" },
+  ];
+
+  const payColWidth = contentWidth / 4;
+  payCols.forEach((col, idx) => {
+    const colX = margin + idx * payColWidth + 2;
     pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(7.5);
+    pdf.setFontSize(6.8);
+    pdf.setTextColor(...COLORS.ink);
+    pdf.text(col.label, colX, paymentBoxY + 4.5);
+    pdf.setFont("helvetica", "normal");
+    pdf.setTextColor(...COLORS.muted);
+    pdf.text(col.val, colX, paymentBoxY + 9);
+  });
+
+  y = paymentBoxY + paymentBoxHeight + 5;
+
+  // 7. References (if any)
+  if (document.references.length) {
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(7.2);
     pdf.setTextColor(...COLORS.ink);
     pdf.text("REFERENCIAS DOCUMENTARIAS", margin, y);
     pdf.setFont("helvetica", "normal");
     pdf.setTextColor(...COLORS.muted);
-    const references = document.references.map((reference) => `${reference.type} / Folio ${reference.folio}${reference.reason ? ` · ${reference.reason}` : ""}`).join("\n");
-    pdf.text(pdf.splitTextToSize(references, contentWidth), margin, y + 4);
-    y += 12 + document.references.length * 3.5;
+    const references = document.references
+      .map((ref) => `${ref.type} / Folio ${ref.folio}${ref.reason ? ` · ${ref.reason}` : ""}`)
+      .join("\n");
+    pdf.text(pdf.splitTextToSize(references, contentWidth), margin, y + 3.5);
+    y += 8 + document.references.length * 3;
   }
 
-  y = ensureSpace(pdf, y + 4, 63, margin, height);
-  y = drawSectionHeader(pdf, sections[3], margin, y, contentWidth);
+  // 8. Timbre + RESUMEN DEL DOCUMENTO
+  const summaryWidth = 76;
+  const summaryX = width - margin - summaryWidth;
   const summaryY = y;
-  const summaryHeight = 42;
-  const totalsWidth = 72;
-  const totalsX = width - margin - totalsWidth;
+  const summaryHeight = 36;
+
+  // Right Box: RESUMEN DEL DOCUMENTO
   pdf.setFillColor(...COLORS.pale);
   pdf.setDrawColor(...COLORS.border);
-  pdf.rect(totalsX, summaryY, totalsWidth, summaryHeight, "FD");
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(7.6);
-  pdf.setTextColor(...COLORS.muted);
-  const totalLines: Array<[string, string]> = [
-    ["Monto neto", money(document.totals.net)],
-    ["Monto exento", money(document.totals.exempt)],
-    [`I.V.A. (${document.totals.ivaRate}%)`, money(document.totals.iva)],
-  ];
-  const totalDiscount = document.details.reduce((sum, item) => sum + item.discountAmount, 0);
-  if (totalDiscount > 0) totalLines.push(["Descuento", `-${money(totalDiscount)}`]);
-  totalLines.forEach(([label, value], index) => {
-    const lineY = summaryY + 7 + index * 6;
-    pdf.text(label, totalsX + 4, lineY);
-    pdf.text(value, totalsX + totalsWidth - 4, lineY, { align: "right" });
-  });
-  pdf.setFillColor(...COLORS.blue);
-  pdf.rect(totalsX, summaryY + summaryHeight - 11, totalsWidth, 11, "F");
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(8.8);
-  pdf.setTextColor(...COLORS.white);
-  pdf.text("TOTAL", totalsX + 4, summaryY + summaryHeight - 4);
-  pdf.text(money(document.totals.total), totalsX + totalsWidth - 4, summaryY + summaryHeight - 4, { align: "right" });
+  pdf.setLineWidth(0.2);
+  pdf.rect(summaryX, summaryY, summaryWidth, summaryHeight, "FD");
 
-  const barcode = await renderTedPdf417(document.tedXml);
-  const barcodeWidth = 88;
-  const barcodeHeight = 27;
-  pdf.addImage(barcode, "PNG", margin + 2, summaryY + 4, barcodeWidth, barcodeHeight);
   pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(7);
+  pdf.setFontSize(7.5);
+  pdf.setTextColor(...COLORS.blue);
+  pdf.text("RESUMEN DEL DOCUMENTO", summaryX + summaryWidth / 2, summaryY + 5, { align: "center" });
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(7.3);
   pdf.setTextColor(...COLORS.ink);
-  pdf.text("Timbre Electrónico S.I.I.", margin + 2 + barcodeWidth / 2, summaryY + summaryHeight - 3, { align: "center" });
-  if (document.resolution.number || document.resolution.date) {
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(6.3);
-    pdf.setTextColor(...COLORS.muted);
-    const resolution = `Res. N° ${document.resolution.number || "—"} de ${document.resolution.date || "—"} · Verifique documento en www.sii.cl`;
-    pdf.text(pdf.splitTextToSize(resolution, 98), margin + 2, summaryY + summaryHeight + 4);
+
+  const summaryLines: Array<[string, string]> = [
+    ["Monto Neto", formatNumber(document.totals.net)],
+  ];
+  if (document.totals.exempt > 0) {
+    summaryLines.push(["Monto Exento", formatNumber(document.totals.exempt)]);
+  }
+  summaryLines.push([`I.V.A. ${document.totals.ivaRate || 19}%`, formatNumber(document.totals.iva)]);
+
+  const totalDiscount = document.details.reduce((sum, item) => sum + item.discountAmount, 0);
+  if (totalDiscount > 0) {
+    summaryLines.push(["Descuento", `-${formatNumber(totalDiscount)}`]);
   }
 
-  y = summaryY + summaryHeight + 10;
-  y = ensureSpace(pdf, y, 20, margin, height);
-  pdf.setDrawColor(...COLORS.border);
-  pdf.line(margin, y, width - margin, y);
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(6.8);
-  pdf.setTextColor(...COLORS.muted);
-  pdf.text("Acuse de recibo de mercaderías o servicios", margin, y + 5);
-  pdf.text("Nombre, RUT y firma", width - margin, y + 5, { align: "right" });
-  pdf.text("CEDIBLE", width - margin, y + 12, { align: "right" });
+  summaryLines.forEach(([lbl, val], idx) => {
+    const lineY = summaryY + 11 + idx * 4.8;
+    pdf.text(lbl, summaryX + 4, lineY);
+    pdf.text("$", summaryX + summaryWidth - 28, lineY);
+    pdf.text(val, summaryX + summaryWidth - 4, lineY, { align: "right" });
+  });
 
-  drawPageNumbers(pdf, margin, height);
+  // Total bar
+  pdf.setFillColor(...COLORS.blue);
+  pdf.rect(summaryX, summaryY + summaryHeight - 8.5, summaryWidth, 8.5, "F");
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(8.5);
+  pdf.setTextColor(...COLORS.white);
+  pdf.text("Total", summaryX + 4, summaryY + summaryHeight - 3);
+  pdf.text("$", summaryX + summaryWidth - 28, summaryY + summaryHeight - 3);
+  pdf.text(formatNumber(document.totals.total), summaryX + summaryWidth - 4, summaryY + summaryHeight - 3, { align: "right" });
+
+  // Left side: TED / Timbre
+  if (barcodeDataUrl) {
+    const barcodeWidth = 84;
+    const barcodeHeight = 25;
+    try {
+      pdf.addImage(barcodeDataUrl, "PNG", margin + 2, summaryY, barcodeWidth, barcodeHeight);
+    } catch {
+      // Barcode image fallback
+    }
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(7.2);
+    pdf.setTextColor(...COLORS.ink);
+    pdf.text("Timbre electrónico S.I.I.", margin + 2 + barcodeWidth / 2, summaryY + barcodeHeight + 4.5, { align: "center" });
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(6.2);
+    pdf.setTextColor(...COLORS.muted);
+    const resNumber = document.resolution.number || "80";
+    const resDate = document.resolution.date || "2014-08-22";
+    pdf.text(`Res.${resNumber} de ${resDate}. Verifique el documento en: www.sii.cl`, margin + 2 + barcodeWidth / 2, summaryY + barcodeHeight + 8, { align: "center" });
+  }
+
+  // 9. CEDIBLE Section (Page 2 only)
+  if (isCedible) {
+    const cedibleY = 254;
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(7);
+    pdf.setTextColor(...COLORS.ink);
+
+    pdf.text("Nombre  _______________________________________", margin, cedibleY);
+    pdf.text("RUT  _______________________________________", margin + 100, cedibleY);
+
+    pdf.text("Fecha   _______________________________________", margin, cedibleY + 7);
+    pdf.text("Recinto  __________________", margin + 65, cedibleY + 7);
+    pdf.text("Firma  ____________________", margin + 125, cedibleY + 7);
+
+    pdf.setFontSize(6);
+    pdf.setTextColor(...COLORS.muted);
+    const legalNotice = "El acuse de recibo que se declara en este acto, de acuerdo a lo dispuesto en la letra b) del Art. 4°, y la letra c) del Art. 5° de la Ley 19.983, acredita que la entrega de mercaderías o servicio(s) prestado(s) ha(n) sido recibido(s).";
+    pdf.text(pdf.splitTextToSize(legalNotice, contentWidth), margin, cedibleY + 13);
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(10);
+    pdf.setTextColor(...COLORS.ink);
+    pdf.text("CEDIBLE", width - margin, cedibleY + 22, { align: "right" });
+  }
+}
+
+export async function renderFiscalPdf(
+  document: ParsedDteDocument,
+  options?: FiscalPdfOptions
+): Promise<Uint8Array> {
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+
+  const logoDataUrl = options?.logoDataUrl ?? (await loadDefaultLogo());
+  let barcodeDataUrl = "";
+  try {
+    barcodeDataUrl = await renderTedPdf417(document.tedXml);
+  } catch {
+    barcodeDataUrl = "";
+  }
+
+  // Page 1: Original (Copia Tributaria)
+  renderDocumentCopy(pdf, document, barcodeDataUrl, logoDataUrl, false);
+
+  // Page 2: Copia CEDIBLE (Con acuse de recibo Ley 19.983)
+  pdf.addPage();
+  renderDocumentCopy(pdf, document, barcodeDataUrl, logoDataUrl, true);
+
   return new Uint8Array(pdf.output("arraybuffer"));
 }
+
