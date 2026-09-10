@@ -11,5 +11,25 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   const query = parsePageQuery(raw);
   const publicLink = Array.isArray(raw.publicLink) ? raw.publicLink[0] : raw.publicLink;
    const [orders, hasClient, hasCatalog, user] = await Promise.all([listOrders(query), hasActiveClient(), hasActiveCatalogItem(), requireUser()]);
-    return <OrderManager publicLink={publicLink} query={query} page={orders.page} pageSize={orders.pageSize} total={orders.total} canImport={user.role === "admin"} canCreate={canCreateOrder(hasClient, hasCatalog)} orders={orders.items.map((order) => ({ id: order.id, number: order.number, clientName: order.clientName, clientEmail: order.clientEmail, status: order.status, total: order.total }))} />;
+    return (
+      <OrderManager
+        publicLink={publicLink}
+        query={query}
+        page={orders.page}
+        pageSize={orders.pageSize}
+        total={orders.total}
+        canImport={user.role === "admin"}
+        canCreate={canCreateOrder(hasClient, hasCatalog)}
+        orders={orders.items.map((order) => ({
+          id: order.id,
+          number: order.number,
+          clientName: order.clientName,
+          clientEmail: order.clientEmail,
+          status: order.status,
+          total: order.total,
+          paidAt: order.paidAt ? order.paidAt.toISOString() : null,
+          invoicedAt: order.invoicedAt ? order.invoicedAt.toISOString() : null,
+        }))}
+      />
+    );
 }

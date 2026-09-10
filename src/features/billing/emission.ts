@@ -21,7 +21,7 @@ export { assertProviderMatchesOrder } from "./evidence-orchestration";
 
 type FiscalClientSnapshot = { taxId: string | null; legalName: string; giro: string | null; addressLine: string | null; commune: string | null; city: string | null; email?: string };
 type FiscalOrderSnapshot = { subtotal?: string; total: string; taxTotal: string; discountTotal: string; notes: string | null };
-type FiscalLineSnapshot = { description: string; quantity: string; unitPrice: string; subtotal: string; discountAmount: string; taxRate: string; taxAmount: string; total: string };
+type FiscalLineSnapshot = { code?: string | null; description: string; quantity: string; unitPrice: string; subtotal: string; discountAmount: string; taxRate: string; taxAmount: string; total: string };
 
 export function buildFacturaPayload(input: { client: FiscalClientSnapshot; order: FiscalOrderSnapshot; lines: FiscalLineSnapshot[]; issuerRut?: string | null }): IntellyDteFacturaPayload {
   assertDte33Preflight(input);
@@ -30,7 +30,17 @@ export function buildFacturaPayload(input: { client: FiscalClientSnapshot; order
     const quantity = Number(line.quantity);
     const originalSubtotal = Math.round(originalUnitPrice * quantity);
     const discountAmount = fiscalMoney(line.discountAmount, "DISCOUNT");
-    const item: IntellyDteFacturaPayload["items"][number] = { nombre: line.description, cantidad: quantity, precioUnitario: originalUnitPrice, montoItem: originalSubtotal - discountAmount, exento: Number(line.taxRate) === 0 };
+    const nombre = (line.code?.trim() || line.description).slice(0, 80);
+    const item: IntellyDteFacturaPayload["items"][number] = {
+      nombre,
+      cantidad: quantity,
+      precioUnitario: originalUnitPrice,
+      montoItem: originalSubtotal - discountAmount,
+      exento: Number(line.taxRate) === 0,
+    };
+    if (line.description?.trim() && line.description.trim() !== nombre) {
+      item.descripcion = line.description.trim().slice(0, 1000);
+    }
     if (discountAmount > 0) {
       item.descuentoMonto = discountAmount;
       item.descuentoPct = Number(((discountAmount / originalSubtotal) * 100).toFixed(2));
@@ -258,7 +268,7 @@ export async function issueInvoice(orderId: string, userId: string, gateway?: In
   const db = getDb();
   const [order] = await db.select({ id: paymentOrders.id, number: paymentOrders.number, status: paymentOrders.status, subtotal: paymentOrders.subtotal, total: paymentOrders.total, taxTotal: paymentOrders.taxTotal, discountTotal: paymentOrders.discountTotal, notes: paymentOrders.notes, clientId: clients.id, clientTaxId: clients.taxId, clientName: clients.legalName, clientGiro: clients.giro, clientAddress: clients.addressLine, clientCommune: clients.commune, clientCity: clients.city, clientEmail: clients.email }).from(paymentOrders).innerJoin(clients, eq(clients.id, paymentOrders.clientId)).where(eq(paymentOrders.id, orderId)).limit(1).execute();
   if (!order || (order.status !== "issued" && order.status !== "paid")) throw new AppError("NOT_INVOICEABLE", "La orden debe estar emitida o pagada.", 409);
-  const lines = await db.select({ description: paymentOrderLines.description, quantity: paymentOrderLines.quantity, unitPrice: paymentOrderLines.unitPrice, subtotal: paymentOrderLines.subtotal, discountAmount: paymentOrderLines.discountAmount, taxRate: paymentOrderLines.taxRate, taxAmount: paymentOrderLines.taxAmount, total: paymentOrderLines.total }).from(paymentOrderLines).where(eq(paymentOrderLines.paymentOrderId, orderId)).orderBy(paymentOrderLines.sortOrder).execute();
+  const lines = await db.select({ code: paymentOrderLines.code, description: paymentOrderLines.description, quantity: paymentOrderLines.quantity, unitPrice: paymentOrderLines.unitPrice, subtotal: paymentOrderLines.subtotal, discountAmount: paymentOrderLines.discountAmount, taxRate: paymentOrderLines.taxRate, taxAmount: paymentOrderLines.taxAmount, total: paymentOrderLines.total }).from(paymentOrderLines).where(eq(paymentOrderLines.paymentOrderId, orderId)).orderBy(paymentOrderLines.sortOrder).execute();
   const config = await getIntellyDteConfig();
   const env = getEnv();
   let tenantRut = config?.tenantRut ?? (env.INTELLYDTE_TENANT_RUT || env.INTELLYDTE_COMPANY_TAX_ID ? normalizeIntellyDteTenantRut(env.INTELLYDTE_TENANT_RUT || env.INTELLYDTE_COMPANY_TAX_ID!) : env.INTELLYDTE_MODE === "fake" ? "12345678-5" : null);
@@ -299,7 +309,7 @@ function eventData(payload: Record<string, unknown>): Record<string, unknown> {
 async function payloadForInvoice(db: BillingDb, paymentOrderId: string): Promise<IntellyDteFacturaPayload> {
   const [order] = await db.select({ subtotal: paymentOrders.subtotal, total: paymentOrders.total, taxTotal: paymentOrders.taxTotal, discountTotal: paymentOrders.discountTotal, notes: paymentOrders.notes, clientTaxId: clients.taxId, clientName: clients.legalName, clientGiro: clients.giro, clientAddress: clients.addressLine, clientCommune: clients.commune, clientCity: clients.city, clientEmail: clients.email }).from(paymentOrders).innerJoin(clients, eq(clients.id, paymentOrders.clientId)).where(eq(paymentOrders.id, paymentOrderId)).limit(1).execute();
   if (!order) throw new AppError("INVOICE_ORDER_MISSING", "La orden de la factura no existe.", 404);
-  const lines = await db.select({ description: paymentOrderLines.description, quantity: paymentOrderLines.quantity, unitPrice: paymentOrderLines.unitPrice, subtotal: paymentOrderLines.subtotal, discountAmount: paymentOrderLines.discountAmount, taxRate: paymentOrderLines.taxRate, taxAmount: paymentOrderLines.taxAmount, total: paymentOrderLines.total }).from(paymentOrderLines).where(eq(paymentOrderLines.paymentOrderId, paymentOrderId)).orderBy(paymentOrderLines.sortOrder).execute();
+  const lines = await db.select({ code: paymentOrderLines.code, description: paymentOrderLines.description, quantity: paymentOrderLines.quantity, unitPrice: paymentOrderLines.unitPrice, subtotal: paymentOrderLines.subtotal, discountAmount: paymentOrderLines.discountAmount, taxRate: paymentOrderLines.taxRate, taxAmount: paymentOrderLines.taxAmount, total: paymentOrderLines.total }).from(paymentOrderLines).where(eq(paymentOrderLines.paymentOrderId, paymentOrderId)).orderBy(paymentOrderLines.sortOrder).execute();
   return buildFacturaPayload({ client: { taxId: order.clientTaxId, legalName: order.clientName, giro: order.clientGiro, addressLine: order.clientAddress, commune: order.clientCommune, city: order.clientCity, email: order.clientEmail }, order: { subtotal: order.subtotal, total: order.total, taxTotal: order.taxTotal, discountTotal: order.discountTotal, notes: order.notes }, lines });
 }
 

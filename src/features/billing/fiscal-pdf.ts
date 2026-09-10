@@ -10,10 +10,11 @@ const COLORS = {
   muted: [71, 85, 105] as [number, number, number],
   border: [203, 213, 225] as [number, number, number],
   pale: [248, 250, 252] as [number, number, number],
-  blue: [27, 79, 114] as [number, number, number],      // Chilean DTE header blue (#1b4f72)
+  blue: [27, 75, 224] as [number, number, number],      // Intelly Brand Royal Blue (#1b4be0)
+  cyan: [20, 208, 246] as [number, number, number],     // Intelly Brand Cyan (#14d0f6)
   red: [204, 0, 0] as [number, number, number],         // Official SII Red (#cc0000)
   white: [255, 255, 255] as [number, number, number],
-  lightBlue: [235, 243, 250] as [number, number, number],
+  lightBlue: [238, 245, 255] as [number, number, number],
 };
 
 const money = (value: number) => `$${Math.round(value).toLocaleString("es-CL")}`;
@@ -105,8 +106,7 @@ function renderDocumentCopy(
   pdf: jsPDF,
   document: ParsedDteDocument,
   barcodeDataUrl: string,
-  logoDataUrl: string,
-  isCedible: boolean
+  logoDataUrl: string
 ): void {
   const width = pdf.internal.pageSize.getWidth();
   const margin = 12;
@@ -179,11 +179,20 @@ function renderDocumentCopy(
   pdf.text(`Nº ${document.folio}`, siiBoxX + siiBoxWidth / 2, headerY + 24, { align: "center" });
 
   // Subtext below red box
-  const unidadCity = (document.issuer.city || document.issuer.commune || "SANTIAGO ORIENTE").toUpperCase();
+  const rawCommune = (document.issuer.commune || "").trim().toUpperCase();
+  const rawCity = (document.issuer.city || "").trim().toUpperCase();
+  let unidadCity = "LAMPA";
+  if (rawCommune && !rawCommune.includes("METROPOLITANA") && !rawCommune.includes("SANTIAGO")) {
+    unidadCity = rawCommune;
+  } else if (rawCity && !rawCity.includes("METROPOLITANA") && !rawCity.includes("SANTIAGO")) {
+    unidadCity = rawCity;
+  } else if (rawCommune) {
+    unidadCity = rawCommune;
+  }
   pdf.setTextColor(...COLORS.blue);
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(7.5);
-  pdf.text(`S.I.I. - UNIDAD DE ${unidadCity}`, siiBoxX + siiBoxWidth / 2, headerY + siiBoxHeight + 4.5, { align: "center" });
+  pdf.text(`S.I.I. - ${unidadCity}`, siiBoxX + siiBoxWidth / 2, headerY + siiBoxHeight + 4.5, { align: "center" });
 
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(7.5);
@@ -229,25 +238,29 @@ function renderDocumentCopy(
   autoTable(pdf, {
     startY: y,
     margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
     rowPageBreak: "avoid",
-    head: [["Código", "Nombre", "Cantidad", "Precio Neto", "Impuesto Adicional", "Dcto.", "Total"]],
+    head: [["Código", "Nombre", "Descripción", "Cantidad", "Precio Neto", "Dcto.", "Total"]],
     body: document.details.map((item) => {
-      const code = item.description && item.description !== item.name ? item.description : `ITM-${item.lineNumber}`;
+      const hasSeparateDescription = Boolean(item.description && item.description.trim() !== item.name.trim());
+      const code = hasSeparateDescription && item.description!.length <= 20
+        ? item.description!
+        : `ITM-${item.lineNumber}`;
       const name = item.name;
-      const additionalTax = item.exempt ? "Exento" : document.totals.ivaRate ? `${document.totals.ivaRate}%` : "0";
+      const description = hasSeparateDescription ? item.description! : "-";
       return [
         code,
         name,
+        description,
         String(item.quantity),
         money(item.unitPrice),
-        additionalTax,
         item.discountAmount ? money(item.discountAmount) : "0",
         money(item.amount),
       ];
     }),
     styles: {
       font: "helvetica",
-      fontSize: 7.2,
+      fontSize: 7,
       cellPadding: 2,
       textColor: COLORS.ink,
       lineColor: COLORS.border,
@@ -259,17 +272,17 @@ function renderDocumentCopy(
       textColor: COLORS.white,
       fontStyle: "bold",
       halign: "center",
-      fontSize: 7.4,
+      fontSize: 7.2,
     },
     alternateRowStyles: { fillColor: COLORS.pale },
     columnStyles: {
-      0: { cellWidth: 24, halign: "left" },
-      1: { cellWidth: 64, halign: "left" },
-      2: { cellWidth: 14, halign: "center" },
-      3: { cellWidth: 22, halign: "right" },
-      4: { cellWidth: 24, halign: "center" },
+      0: { cellWidth: 18, halign: "left" },
+      1: { cellWidth: 40, halign: "left" },
+      2: { cellWidth: 60, halign: "left" },
+      3: { cellWidth: 14, halign: "center" },
+      4: { cellWidth: 20, halign: "right" },
       5: { cellWidth: 14, halign: "right" },
-      6: { cellWidth: 24, halign: "right", fontStyle: "bold" },
+      6: { cellWidth: 20, halign: "right", fontStyle: "bold" },
     },
   });
 
@@ -395,31 +408,6 @@ function renderDocumentCopy(
     const resDate = document.resolution.date || "2014-08-22";
     pdf.text(`Res.${resNumber} de ${resDate}. Verifique el documento en: www.sii.cl`, margin + 2 + barcodeWidth / 2, summaryY + barcodeHeight + 8, { align: "center" });
   }
-
-  // 9. CEDIBLE Section (Page 2 only)
-  if (isCedible) {
-    const cedibleY = 254;
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(7);
-    pdf.setTextColor(...COLORS.ink);
-
-    pdf.text("Nombre  _______________________________________", margin, cedibleY);
-    pdf.text("RUT  _______________________________________", margin + 100, cedibleY);
-
-    pdf.text("Fecha   _______________________________________", margin, cedibleY + 7);
-    pdf.text("Recinto  __________________", margin + 65, cedibleY + 7);
-    pdf.text("Firma  ____________________", margin + 125, cedibleY + 7);
-
-    pdf.setFontSize(6);
-    pdf.setTextColor(...COLORS.muted);
-    const legalNotice = "El acuse de recibo que se declara en este acto, de acuerdo a lo dispuesto en la letra b) del Art. 4°, y la letra c) del Art. 5° de la Ley 19.983, acredita que la entrega de mercaderías o servicio(s) prestado(s) ha(n) sido recibido(s).";
-    pdf.text(pdf.splitTextToSize(legalNotice, contentWidth), margin, cedibleY + 13);
-
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(10);
-    pdf.setTextColor(...COLORS.ink);
-    pdf.text("CEDIBLE", width - margin, cedibleY + 22, { align: "right" });
-  }
 }
 
 export async function renderFiscalPdf(
@@ -436,12 +424,8 @@ export async function renderFiscalPdf(
     barcodeDataUrl = "";
   }
 
-  // Page 1: Original (Copia Tributaria)
-  renderDocumentCopy(pdf, document, barcodeDataUrl, logoDataUrl, false);
-
-  // Page 2: Copia CEDIBLE (Con acuse de recibo Ley 19.983)
-  pdf.addPage();
-  renderDocumentCopy(pdf, document, barcodeDataUrl, logoDataUrl, true);
+  // Documento oficial tributario (1 sola página)
+  renderDocumentCopy(pdf, document, barcodeDataUrl, logoDataUrl);
 
   return new Uint8Array(pdf.output("arraybuffer"));
 }

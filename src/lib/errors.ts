@@ -12,6 +12,9 @@ export class AppError extends Error {
 }
 
 export function safeError(error: unknown) {
+  if (error && typeof error === "object" && "digest" in error && typeof (error as { digest: unknown }).digest === "string" && (error as { digest: string }).digest.startsWith("NEXT_REDIRECT")) {
+    throw error;
+  }
   if (error instanceof AppError) {
     return { code: error.code, message: error.message, correlationId: error.correlationId };
   }

@@ -10,6 +10,7 @@ export type IntellyDteReceptor = {
 
 export type IntellyDteItem = {
   nombre: string;
+  descripcion?: string;
   cantidad: number;
   precioUnitario: number;
   montoItem: number;

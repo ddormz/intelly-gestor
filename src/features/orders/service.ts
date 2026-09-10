@@ -15,8 +15,8 @@ import { validateUnitPriceOverride, type OrderActorRole } from "./price-policy";
 import { encryptPublicToken } from "./public-token";
 import { isPublicOrderAccessible } from "./public-access";
 
-const orderFields = { id: paymentOrders.id, number: paymentOrders.number, status: paymentOrders.status, total: paymentOrders.total, createdAt: paymentOrders.createdAt, clientName: clients.legalName, clientEmail: clients.email };
-type OrderListItem = { id: string; number: string; status: "draft" | "issued" | "paid" | "expired" | "cancelled" | "invoiced"; total: string; createdAt: Date; clientName: string; clientEmail: string };
+const orderFields = { id: paymentOrders.id, number: paymentOrders.number, status: paymentOrders.status, total: paymentOrders.total, createdAt: paymentOrders.createdAt, paidAt: paymentOrders.paidAt, invoicedAt: paymentOrders.invoicedAt, clientName: clients.legalName, clientEmail: clients.email };
+type OrderListItem = { id: string; number: string; status: "draft" | "issued" | "paid" | "expired" | "cancelled" | "invoiced"; total: string; createdAt: Date; paidAt: Date | null; invoicedAt: Date | null; clientName: string; clientEmail: string };
 
 export function listOrders(): Promise<OrderListItem[]>;
 export function listOrders(query: PageQuery): Promise<PageResult<OrderListItem>>;
@@ -260,7 +260,12 @@ export async function importDraftOrders(rows: DraftOrderCsvRow[], userId: string
   return resolved.length;
 }
 
-export async function issueOrder(id: string, userId: string) {
+export type IssueOrderOptions = {
+  markAsPaid?: boolean;
+  paymentMethod?: string;
+};
+
+export async function issueOrder(id: string, userId: string, options: IssueOrderOptions = {}) {
   return getDb().transaction(async (tx) => {
     const [order] = await tx.select().from(paymentOrders).where(eq(paymentOrders.id, id)).limit(1).for("update").execute();
     if (!order) throw new AppError("ORDER_NOT_FOUND", "Orden no encontrada.", 404);
@@ -268,9 +273,42 @@ export async function issueOrder(id: string, userId: string) {
     assertTransition(order.status, "issued");
     const token = randomToken();
     const encryptedToken = encryptPublicToken(token);
-    const result = await tx.update(paymentOrders).set({ status: "issued", issuedAt: new Date(), publicTokenHash: hashToken(token), publicTokenCiphertext: encryptedToken.ciphertext, publicTokenIv: encryptedToken.iv, publicTokenAuthTag: encryptedToken.authTag, publicExpiresAt: new Date(Date.now() + 30 * 86_400_000), publicRevokedAt: null, updatedBy: userId, version: order.version + 1 }).where(and(eq(paymentOrders.id, id), eq(paymentOrders.version, order.version))).execute();
+    const now = new Date();
+    const nextStatus = options.markAsPaid ? "paid" : "issued";
+
+    if (options.markAsPaid) {
+      const paymentId = randomUUID();
+      await tx.insert(payments).values({
+        id: paymentId,
+        paymentOrderId: id,
+        idempotencyKey: randomUUID(),
+        amount: order.total,
+        currency: order.currency,
+        method: "manual",
+        paidAt: now,
+        recordedBy: userId,
+      });
+    }
+
+    const result = await tx.update(paymentOrders).set({
+      status: nextStatus,
+      issuedAt: now,
+      paidAt: options.markAsPaid ? now : null,
+      publicTokenHash: hashToken(token),
+      publicTokenCiphertext: encryptedToken.ciphertext,
+      publicTokenIv: encryptedToken.iv,
+      publicTokenAuthTag: encryptedToken.authTag,
+      publicExpiresAt: new Date(Date.now() + 30 * 86_400_000),
+      publicRevokedAt: null,
+      updatedBy: userId,
+      version: order.version + 1,
+    }).where(and(eq(paymentOrders.id, id), eq(paymentOrders.version, order.version))).execute();
+
     if (Number(result[0]?.affectedRows ?? 0) !== 1) throw new AppError("ORDER_VERSION_CONFLICT", "La orden cambió mientras se emitía. Intenta nuevamente.", 409);
-    await auditOrder(tx, userId, "order.issued", id, { publicTokenRotated: true });
+    await auditOrder(tx, userId, "order.issued", id, { publicTokenRotated: true, markAsPaid: Boolean(options.markAsPaid) });
+    if (options.markAsPaid) {
+      await auditOrder(tx, userId, "order.paid", id, { amount: order.total, immediate: true });
+    }
     return token;
   });
 }
@@ -281,10 +319,15 @@ export async function markOrderPaid(id: string, userId: string, idempotencyKey: 
     if (existing) return existing.id;
     const [order] = await tx.select().from(paymentOrders).where(eq(paymentOrders.id, id)).limit(1).for("update").execute();
     if (!order) throw new AppError("ORDER_NOT_FOUND", "Orden no encontrada.", 404);
-    assertTransition(order.status, "paid");
+    if (order.paidAt) throw new AppError("ORDER_ALREADY_PAID", "La orden ya se encuentra pagada.", 409);
+    if (order.status !== "issued" && order.status !== "invoiced") {
+      throw new AppError("INVALID_ORDER_TRANSITION", `No se puede registrar pago para una orden en estado ${order.status}.`, 409);
+    }
     const paymentId = randomUUID();
-    await tx.insert(payments).values({ id: paymentId, paymentOrderId: id, idempotencyKey, amount: order.total, currency: order.currency, method: "manual", paidAt: new Date(), recordedBy: userId });
-    const result = await tx.update(paymentOrders).set({ status: "paid", paidAt: new Date(), updatedBy: userId, version: order.version + 1 }).where(and(eq(paymentOrders.id, id), eq(paymentOrders.version, order.version))).execute();
+    const now = new Date();
+    await tx.insert(payments).values({ id: paymentId, paymentOrderId: id, idempotencyKey, amount: order.total, currency: order.currency, method: "manual", paidAt: now, recordedBy: userId });
+    const nextStatus = order.status === "invoiced" ? "invoiced" : "paid";
+    const result = await tx.update(paymentOrders).set({ status: nextStatus, paidAt: now, updatedBy: userId, version: order.version + 1 }).where(and(eq(paymentOrders.id, id), eq(paymentOrders.version, order.version))).execute();
     if (Number(result[0]?.affectedRows ?? 0) !== 1) throw new AppError("ORDER_VERSION_CONFLICT", "La orden cambió mientras se registraba el pago. Intenta nuevamente.", 409);
     await auditOrder(tx, userId, "order.paid", id, { amount: order.total });
     return paymentId;

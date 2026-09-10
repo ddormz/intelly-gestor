@@ -73,13 +73,13 @@ describe("signed DTE XML and local fiscal PDF", () => {
     ]);
   });
 
-  it("renders a 2-page DTE with original and cedible copy", async () => {
+  it("renders a 1-page official DTE without cedible copy", async () => {
     const document = parseSignedDteXml(await readFile(fixture, "utf8"));
     const pdfBytes = await renderFiscalPdf(document);
     const pdfText = new TextDecoder("latin1").decode(pdfBytes);
 
     expect(pdfText).toContain("%PDF");
-    expect(pdfText).toContain("/Count 2");
-    expect(pdfBytes.byteLength).toBeGreaterThan(5000);
+    expect(pdfText).toContain("/Count 1");
+    expect(pdfBytes.byteLength).toBeGreaterThan(4000);
   });
 });

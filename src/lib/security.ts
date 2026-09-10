@@ -14,6 +14,24 @@ export function hashToken(value: string): string {
 export async function enforceSameOrigin(): Promise<void> {
   const requestHeaders = await headers();
   const origin = requestHeaders.get("origin");
-  const expected = new URL(getEnv().APP_ORIGIN).origin;
-  if (!origin || origin !== expected) throw new AppError("INVALID_ORIGIN", "Solicitud rechazada.", 403);
+  if (!origin) return;
+
+  try {
+    const expected = new URL(getEnv().APP_ORIGIN).origin;
+    if (origin === expected) return;
+  } catch {
+    // configured APP_ORIGIN not a valid URL
+  }
+
+  const host = requestHeaders.get("x-forwarded-host") || requestHeaders.get("host");
+  if (host) {
+    try {
+      const originHost = new URL(origin).host.toLowerCase();
+      if (originHost === host.toLowerCase()) return;
+    } catch {
+      // malformed origin
+    }
+  }
+
+  throw new AppError("INVALID_ORIGIN", "Solicitud rechazada.", 403);
 }

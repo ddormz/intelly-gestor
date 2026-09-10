@@ -85,11 +85,13 @@ export async function issueOrderAction(_: ActionState, formData: FormData): Prom
     await enforceSameOrigin();
     const user = await requireUser();
     const id = String(formData.get("id"));
-    const token = await issueOrder(id, user.userId);
+    const markAsPaid = formData.get("markAsPaid") === "true";
+    const paymentMethod = String(formData.get("paymentMethod") || "manual");
+    const token = await issueOrder(id, user.userId, { markAsPaid, paymentMethod });
     revalidatePath("/ordenes");
     return {
       status: "success",
-      message: "Orden emitida correctamente.",
+      message: markAsPaid ? "Orden emitida y marcada como pagada." : "Orden emitida correctamente.",
       data: { publicLink: `/orden/${token}` },
     };
   } catch (error) {

@@ -275,4 +275,31 @@ describe("payment-order cart contract", () => {
     await expect(updateOrderFromCart({ id: "order-id", clientId, lines: [{ catalogItemId: itemId, quantity: 1, unitPrice: 1000 }], discountPercent: 0, discountReason: "" }, "user-id", 1, "operator")).rejects.toMatchObject({ code: "ORDER_VERSION_CONFLICT" });
     expect(inserts.some((value) => Array.isArray(value) && value.some((item) => item.paymentOrderId === "order-id"))).toBe(false);
   });
+
+  it("emits an order marked as paid immediately", async () => {
+    const { updates, inserts } = configureDb([[{ id: "order-id", status: "draft", version: 4, total: "1190", currency: "CLP" }]]);
+    const token = await issueOrder("order-id", "user-id", { markAsPaid: true });
+    expect(token).toEqual(expect.any(String));
+    expect(updates[0]).toMatchObject({ status: "paid", version: 5, publicTokenHash: hashToken(token) });
+    expect(inserts.some((value) => value && typeof value === "object" && (value as { method?: string }).method === "manual")).toBe(true);
+  });
+
+  it("marks an invoiced order as paid while retaining invoiced status", async () => {
+    const { updates, inserts } = configureDb([
+      [],
+      [{ id: "order-id", status: "invoiced", version: 3, total: "5000", currency: "CLP", paidAt: null }],
+    ]);
+    const paymentId = await markOrderPaid("order-id", "user-id", "payment-invoiced-key");
+    expect(paymentId).toEqual(expect.any(String));
+    expect(updates[0]).toMatchObject({ status: "invoiced", version: 4 });
+    expect(inserts.some((value) => value && typeof value === "object" && (value as { amount?: string }).amount === "5000")).toBe(true);
+  });
+
+  it("rejects marking an already-paid order as paid again", async () => {
+    configureDb([
+      [],
+      [{ id: "order-id", status: "paid", version: 3, total: "5000", currency: "CLP", paidAt: new Date() }],
+    ]);
+    await expect(markOrderPaid("order-id", "user-id", "duplicate-payment-key")).rejects.toMatchObject({ code: "ORDER_ALREADY_PAID" });
+  });
 });

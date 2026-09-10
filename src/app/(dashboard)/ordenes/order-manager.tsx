@@ -34,6 +34,8 @@ type OrderItem = {
   clientEmail: string;
   status: string;
   total: string;
+  paidAt?: string | null;
+  invoicedAt?: string | null;
 };
 
 export function orderCatalogTypeLabel(item: { type: "product" | "service" | "project" }): string {
@@ -205,7 +207,16 @@ export function OrderManager({
                     {order.clientName}
                   </td>
                   <td data-label="Estado">
-                    <Badge status={order.status}>{getStatusLabel(order.status)}</Badge>
+                    <div className="flex flex-col gap-1 items-start">
+                      <Badge status={order.status}>{getStatusLabel(order.status)}</Badge>
+                      {order.status !== "draft" ? (
+                        order.paidAt ? (
+                          <Badge status="paid">Pagada</Badge>
+                        ) : (
+                          <Badge status="pending">Pendiente de pago</Badge>
+                        )
+                      ) : null}
+                    </div>
                   </td>
                   <td data-label="Total" className="text-right font-semibold">
                     {formatClpAmount(Number(order.total))}
@@ -231,30 +242,74 @@ export function OrderManager({
                           triggerIcon={<Send size={15} />}
                           variant="secondary"
                           title="Emitir orden"
-                          description="Se generará un enlace público seguro para el cliente."
+                          description="Emite la orden de pago y genera el enlace seguro para el cliente."
                           submitLabel="Emitir orden"
+                          pendingLabel="Emitiendo orden…"
                           action={issueOrderAction}
                           onSuccess={(res) => {
                             if (typeof res.data?.publicLink === "string") setActiveLink(res.data.publicLink);
                           }}
                         >
                           {() => (
-                            <>
+                            <div className="space-y-4">
                               <input type="hidden" name="id" value={order.id} />
                               <p className="text-sm text-[var(--color-muted-foreground)]">
-                                Confirma la emisión de <strong>{order.number}</strong>.
+                                Confirma la emisión de <strong>{order.number}</strong> por{" "}
+                                <strong>{formatClpAmount(Number(order.total))}</strong>.
                               </p>
-                            </>
+                              <div className="space-y-2 pt-2 border-t border-[var(--color-border)]">
+                                <label className="text-xs font-bold uppercase tracking-wider text-[var(--color-muted-foreground)]">
+                                  Estado inicial del pago
+                                </label>
+                                <div className="grid gap-2">
+                                  <label className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-background-soft)]">
+                                    <input
+                                      type="radio"
+                                      name="markAsPaid"
+                                      value="false"
+                                      defaultChecked
+                                      className="accent-[var(--brand-royal)]"
+                                    />
+                                    <div>
+                                      <span className="text-sm font-semibold text-[var(--brand-deep)] block">
+                                        Pendiente de pago
+                                      </span>
+                                      <span className="text-xs text-[var(--color-muted-foreground)] block">
+                                        La orden quedará emitida a la espera del pago posterior del cliente.
+                                      </span>
+                                    </div>
+                                  </label>
+                                  <label className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-background-soft)]">
+                                    <input
+                                      type="radio"
+                                      name="markAsPaid"
+                                      value="true"
+                                      className="accent-[var(--brand-royal)]"
+                                    />
+                                    <div>
+                                      <span className="text-sm font-semibold text-[var(--brand-deep)] block">
+                                        Pagada inmediatamente
+                                      </span>
+                                      <span className="text-xs text-[var(--color-muted-foreground)] block">
+                                        Registra el pago de inmediato (por ejemplo, si el cliente ya pagó o transfirió).
+                                      </span>
+                                    </div>
+                                  </label>
+                                </div>
+                              </div>
+                            </div>
                           )}
                         </ActionModal>
-                      ) : order.status === "issued" ? (
+                      ) : null}
+                      {!order.paidAt && (order.status === "issued" || order.status === "invoiced") ? (
                         <ActionModal
                           iconOnly
                           triggerLabel="Registrar pago"
                           triggerIcon={<Banknote size={15} />}
                           title="Registrar pago"
-                          description="Esta acción cambia el estado financiero de la orden."
+                          description="Registra el comprobante de pago de la orden."
                           submitLabel="Confirmar pago"
+                          pendingLabel="Registrando pago…"
                           action={markPaidAction}
                         >
                           {() => (
@@ -262,7 +317,7 @@ export function OrderManager({
                               <input type="hidden" name="id" value={order.id} />
                               <input type="hidden" name="idempotencyKey" value={`payment:${order.id}`} />
                               <p className="text-sm text-[var(--color-muted-foreground)]">
-                                Confirma el pago de <strong>{formatClpAmount(Number(order.total))}</strong>.
+                                Confirma el pago de <strong>{formatClpAmount(Number(order.total))}</strong> para <strong>{order.number}</strong>.
                               </p>
                             </>
                           )}
