@@ -94,7 +94,9 @@ describe("payment-order domain", () => {
 
   it("allows only explicit financial transitions", () => {
     expect(() => assertTransition("draft", "issued")).not.toThrow();
+    expect(() => assertTransition("draft", "invoiced")).not.toThrow();
     expect(() => assertTransition("issued", "paid")).not.toThrow();
+    expect(() => assertTransition("issued", "invoiced")).not.toThrow();
     expect(() => assertTransition("draft", "paid")).toThrow(/No se puede/);
     expect(() => assertTransition("invoiced", "cancelled")).toThrow(/No se puede/);
   });

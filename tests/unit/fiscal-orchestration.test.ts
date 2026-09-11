@@ -15,7 +15,7 @@ function builder<T>(result: T) {
   return chain;
 }
 
-function configuredDb(existing: unknown[], attempts: unknown[], orderStatus: "issued" | "paid" = "paid") {
+function configuredDb(existing: unknown[], attempts: unknown[], orderStatus: "draft" | "issued" | "paid" = "paid") {
   const selects = [builder([{ id: "order-1", number: "OP-1", status: orderStatus, subtotal: "1000", total: "1190", taxTotal: "190", discountTotal: "0", notes: null, clientId: "client-1", clientTaxId: "12345678-5", clientName: "CLIENTE SPA", clientGiro: "Comercio", clientAddress: "Destino", clientCommune: "Providencia", clientCity: "Santiago", clientEmail: "client@example.com" }]), builder([{ description: "Servicio", quantity: "2", unitPrice: "500", subtotal: "1000", discountAmount: "0", taxRate: "19", taxAmount: "190", total: "1190", sortOrder: 0 }]), builder(existing), builder(attempts)];
   const updates: Array<Record<string, unknown>> = [];
   const db = {
@@ -67,6 +67,19 @@ describe("fiscal emission orchestration", () => {
 
     expect(result).toMatchObject({ kind: "issued", folio: "44", siiStatus: "DOK" });
     expect(issue).toHaveBeenCalledOnce();
+    expect(db.updates).toContainEqual(expect.objectContaining({ status: "invoiced" }));
+  });
+
+  it("can emit an invoice directly from a draft order without issuing the order first", async () => {
+    const db = configuredDb([], [], "draft");
+    const issue = vi.fn(async () => ({ kind: "issued" as const, providerDocumentId: "dte-draft-order", folio: "45", issuedAt: "2026-08-15T12:00:00.000Z", signedXmlBase64: Buffer.from("signed").toString("base64"), siiStatus: "DOK" }));
+    const gateway = { issueInvoice: issue, getInvoiceStatus: vi.fn(), health: vi.fn(), lookupRut: vi.fn() } as unknown as IntellyDteGateway;
+
+    const result = await issueInvoice("order-1", "user-1", gateway);
+
+    expect(result).toMatchObject({ kind: "issued", folio: "45", siiStatus: "DOK" });
+    expect(issue).toHaveBeenCalledOnce();
+    expect(db.updates).toContainEqual(expect.objectContaining({ publicTokenHash: expect.any(String), publicTokenCiphertext: expect.any(String) }));
     expect(db.updates).toContainEqual(expect.objectContaining({ status: "invoiced" }));
   });
 

@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useActionState, useEffect, useState } from "react";
-import { Plus, Search, Trash2, UserRoundPlus } from "lucide-react";
+import { Plus, ReceiptText, Search, Trash2, UserRoundPlus } from "lucide-react";
 import { ActionModal, Alert, Badge, EmptyState, Field, IconButton, Input, PageHeader, TableShell } from "@/components/ui";
 import { createClientAction } from "@/features/clients/actions";
+import { issueInvoiceAction } from "@/features/billing/actions";
 import { ClientFields } from "@/app/(dashboard)/clientes/client-manager";
 import { searchActiveCatalogAction, searchActiveClientsAction } from "@/features/orders/actions";
 import { calculateOrder } from "@/features/orders/domain";
@@ -113,7 +114,37 @@ export function OrderPos({ action, initial }: { action: (state: ActionState, for
   }
 
   return <div className="space-y-6">
-    <PageHeader eyebrow={initial?.id ? initial.number : undefined} title={initial?.id ? "Editar orden de pago" : "Nueva orden de pago"} description="Busca el cliente, arma el carrito y deja que el servidor recalcule los totales antes de guardar." action={<Link className="btn-secondary" href="/ordenes">Volver a órdenes</Link>} />
+    <PageHeader
+      eyebrow={initial?.id ? initial.number : undefined}
+      title={initial?.id ? "Editar orden de pago" : "Nueva orden de pago"}
+      description="Busca el cliente, arma el carrito y deja que el servidor recalcule los totales antes de guardar."
+      action={
+        <div className="flex flex-wrap items-center gap-2">
+          {initial?.id && (initial.status === "draft" || initial.status === "issued" || initial.status === "paid") ? (
+            <ActionModal
+              triggerLabel="Emitir factura"
+              triggerIcon={<ReceiptText aria-hidden="true" className="mr-1 inline" size={16} />}
+              variant="secondary"
+              title="Emitir factura"
+              description="Puedes emitir la factura directamente desde esta orden, sin necesidad de emitir la orden ni registrar un pago previamente."
+              submitLabel="Confirmar emisión"
+              pendingLabel="Emitiendo factura…"
+              action={issueInvoiceAction}
+            >
+              {() => (
+                <>
+                  <input type="hidden" name="orderId" value={initial.id} />
+                  <p className="text-sm text-[var(--color-muted-foreground)]">
+                    Confirma la emisión de la factura para <strong>{initial.number}</strong>.
+                  </p>
+                </>
+              )}
+            </ActionModal>
+          ) : null}
+          <Link className="btn-secondary" href="/ordenes">Volver a órdenes</Link>
+        </div>
+      }
+    />
     {!editable ? <Alert tone="info">La orden está {settledStatus} y no permite cambios financieros.</Alert> : null}
     {state.status === "error" ? <Alert>{state.message}</Alert> : null}
     {state.status === "success" ? <Alert tone="success">{state.message}</Alert> : null}

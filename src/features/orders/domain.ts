@@ -134,8 +134,8 @@ export function canCreateOrder(hasActiveClient: boolean, hasActiveCatalogItem: b
 }
 
 const transitions: Record<OrderStatus, OrderStatus[]> = {
-  draft: ["issued", "cancelled"],
-  issued: ["paid", "expired", "cancelled"],
+  draft: ["issued", "invoiced", "cancelled"],
+  issued: ["paid", "invoiced", "expired", "cancelled"],
   paid: ["invoiced"],
   expired: ["cancelled"],
   cancelled: [],

@@ -7,7 +7,7 @@ vi.mock("@/features/billing/actions", () => ({ issueInvoiceAction: vi.fn() }));
 
 const query = { page: 1, pageSize: 20 };
 
-function renderOrder(status: "issued" | "paid" | "invoiced") {
+function renderOrder(status: "draft" | "issued" | "paid" | "invoiced") {
   return renderToStaticMarkup(createElement(OrderManager, {
     publicLink: undefined,
     orders: [{ id: "order-1", number: "OP-1", clientName: "Cliente", clientEmail: "cliente@example.com", status, total: "1190" }],
@@ -21,7 +21,8 @@ function renderOrder(status: "issued" | "paid" | "invoiced") {
 }
 
 describe("order invoicing UI", () => {
-  it("offers direct invoice emission from issued and paid orders", () => {
+  it("offers direct invoice emission from draft, issued and paid orders", () => {
+    expect(renderOrder("draft")).toContain("Emitir factura");
     expect(renderOrder("issued")).toContain("Emitir factura");
     expect(renderOrder("issued")).toContain("Registrar pago");
     expect(renderOrder("paid")).toContain("Emitir factura");

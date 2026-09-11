@@ -323,13 +323,13 @@ export function OrderManager({
                           )}
                         </ActionModal>
                       ) : null}
-                      {order.status === "issued" || order.status === "paid" ? (
+                      {order.status === "draft" || order.status === "issued" || order.status === "paid" ? (
                         <ActionModal
                           iconOnly
                           triggerLabel="Emitir factura"
                           triggerIcon={<ReceiptText size={15} />}
                           title="Emitir factura"
-                          description="Puedes emitir la factura directamente desde esta orden, sin registrar un pago previamente."
+                          description="Puedes emitir la factura directamente desde esta orden, sin necesidad de emitir la orden ni registrar un pago previamente."
                           submitLabel="Confirmar emisión"
                           pendingLabel="Emitiendo factura…"
                           action={issueInvoiceAction}

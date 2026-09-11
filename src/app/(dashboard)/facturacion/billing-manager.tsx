@@ -393,7 +393,7 @@ export function BillingManager({
                   triggerLabel="Emitir factura"
                   triggerIcon={<ReceiptText size={16} />}
                   title="Emitir factura"
-                  description="Se enviará la orden pagada a IntellyDTE."
+                  description="Se enviará la orden a IntellyDTE para emitir la factura electrónica."
                   submitLabel="Confirmar emisión"
                   pendingLabel="Emitiendo factura…"
                   action={issueInvoiceAction}
