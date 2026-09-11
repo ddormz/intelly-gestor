@@ -26,7 +26,7 @@ type FiscalLineSnapshot = { code?: string | null; description: string; quantity:
 export function buildFacturaPayload(input: { client: FiscalClientSnapshot; order: FiscalOrderSnapshot; lines: FiscalLineSnapshot[]; issuerRut?: string | null }): IntellyDteFacturaPayload {
   assertDte33Preflight(input);
   const items = input.lines.map((line) => {
-    const originalUnitPrice = fiscalMoney(line.unitPrice, "UNIT_PRICE");
+    const originalUnitPrice = fiscalUnitPrice(line.unitPrice);
     const quantity = Number(line.quantity);
     const originalSubtotal = Math.round(originalUnitPrice * quantity);
     const discountAmount = fiscalMoney(line.discountAmount, "DISCOUNT");
@@ -69,6 +69,16 @@ function fiscalMoney(value: string, field: string): number {
   return Math.round(parsed);
 }
 
+function fiscalUnitPrice(value: string): number {
+  const trimmed = String(value).trim();
+  if (!/^\d+(?:\.\d+)?$/.test(trimmed)) throw new AppError("FISCAL_UNIT_PRICE_INVALID", "El precio fiscal no es válido.", 400);
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > Number.MAX_SAFE_INTEGER) {
+    throw new AppError("FISCAL_UNIT_PRICE_INVALID", "El precio fiscal no es seguro.", 400);
+  }
+  return parsed;
+}
+
 export function assertDte33Preflight(input: { client: FiscalClientSnapshot; order: FiscalOrderSnapshot; lines: FiscalLineSnapshot[]; issuerRut?: string | null }): void {
   const receiverFields: Array<[string | null | undefined, string]> = [[input.client.taxId, "RUT"], [input.client.legalName, "RAZON_SOCIAL"], [input.client.giro, "GIRO"], [input.client.addressLine, "DIRECCION"], [input.client.commune, "COMUNA"], [input.client.city, "CIUDAD"]];
   for (const [value, field] of receiverFields) if (!value?.trim()) throw new AppError(`FISCAL_RECEIVER_${field}_REQUIRED`, `La factura requiere ${field.toLowerCase()} del receptor.`, 400);
@@ -76,7 +86,7 @@ export function assertDte33Preflight(input: { client: FiscalClientSnapshot; orde
   if (input.issuerRut !== undefined && (!input.issuerRut || !validChileanRut(input.issuerRut))) throw new AppError("FISCAL_ISSUER_RUT_INVALID", "Configura un RUT emisor válido para IntellyDTE.", 503);
   if (input.lines.length === 0 || input.lines.length > 60) throw new AppError("FISCAL_LINE_LIMIT", "La factura debe tener entre 1 y 60 líneas.", 400);
   const subtotal = input.lines.reduce((sum, line) => {
-    const unitPrice = fiscalMoney(line.unitPrice, "UNIT_PRICE");
+    const unitPrice = fiscalUnitPrice(line.unitPrice);
     const quantity = Number(line.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0) throw new AppError("FISCAL_QUANTITY_INVALID", "La cantidad fiscal debe ser positiva.", 400);
     const originalSubtotal = Math.round(unitPrice * quantity);

@@ -4,18 +4,18 @@ export type OrderActorRole = "admin" | "operator";
 export const MAX_UNIT_PRICE = Number.MAX_SAFE_INTEGER;
 export const OPERATOR_PRICE_VARIANCE = 0.2;
 
-function parseIntegerClp(value: string | number): number {
-  const normalized = String(value).trim();
+export function parseUnitPrice(value: string | number): number {
+  const normalized = String(value).trim().replace(",", ".");
   if (normalized.startsWith("-")) throw new AppError("INVALID_UNIT_PRICE", "El precio debe estar entre 0 y el máximo permitido.");
-  if (!/^\d+(?:\.0{1,2})?$/.test(normalized)) throw new AppError("INVALID_UNIT_PRICE", "El precio debe ser un monto CLP entero.");
+  if (!/^\d+(?:\.\d{1,4})?$/.test(normalized)) throw new AppError("INVALID_UNIT_PRICE", "El precio debe ser un número válido.");
   const number = Number(normalized);
-  if (!Number.isSafeInteger(number) || number < 0 || number > MAX_UNIT_PRICE) throw new AppError("INVALID_UNIT_PRICE", "El precio debe estar entre 0 y el máximo permitido.");
+  if (!Number.isFinite(number) || number < 0 || number > MAX_UNIT_PRICE) throw new AppError("INVALID_UNIT_PRICE", "El precio debe estar entre 0 y el máximo permitido.");
   return number;
 }
 
 export function validateUnitPriceOverride(value: string | number, catalogPrice: string | number, role: OrderActorRole): number {
-  const price = parseIntegerClp(value);
-  const basePrice = parseIntegerClp(catalogPrice);
+  const price = parseUnitPrice(value);
+  const basePrice = parseUnitPrice(catalogPrice);
   if (role === "operator") {
     const variance = Math.max(100, Math.ceil(basePrice * OPERATOR_PRICE_VARIANCE));
     const minimum = Math.max(0, basePrice - variance);

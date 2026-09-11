@@ -5,7 +5,10 @@ const cartLineSchema = z.object({
   name: z.string().trim().max(160).optional(),
   description: z.string().trim().max(240).optional(),
   quantity: z.coerce.number().int().min(1).max(999),
-  unitPrice: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  unitPrice: z.preprocess(
+    (val) => (typeof val === "string" ? val.trim().replace(",", ".") : val),
+    z.coerce.number().min(0).max(Number.MAX_SAFE_INTEGER)
+  ),
   taxCategory: z.enum(["taxable", "exempt"]).optional(),
   taxRate: z.coerce.number().min(0).max(100).optional(),
 }).superRefine((line, context) => {

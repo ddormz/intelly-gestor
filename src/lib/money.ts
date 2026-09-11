@@ -3,16 +3,16 @@ const CLP_DECIMALS = 0;
 export type Money = Readonly<{ minor: bigint; currency: "CLP" }>;
 
 export function clp(minor: bigint | number): Money {
-  const value = BigInt(minor);
+  const value = typeof minor === "bigint" ? minor : BigInt(Math.round(minor));
   if (value < 0n) throw new RangeError("El monto no puede ser negativo.");
   return { minor: value, currency: "CLP" };
 }
 
 export function multiplyMoney(unit: Money, quantity: number): Money {
-  if (!Number.isSafeInteger(quantity) || quantity <= 0) {
-    throw new RangeError("La cantidad debe ser un entero positivo.");
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new RangeError("La cantidad debe ser un número positivo.");
   }
-  return clp(unit.minor * BigInt(quantity));
+  return clp(Math.round(Number(unit.minor) * quantity));
 }
 
 export function calculateTax(net: Money, ratePercent: number): Money {
@@ -48,7 +48,7 @@ export function formatClpAmount(value: string | number | bigint, locale = "es-CL
   return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "CLP",
-    minimumFractionDigits: CLP_DECIMALS,
-    maximumFractionDigits: CLP_DECIMALS,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(Number(value));
 }

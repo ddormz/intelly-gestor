@@ -72,7 +72,9 @@ describe("payment-order cart contract", () => {
       discountReason: " ",
     }).success).toBe(false);
     expect(orderCartSchema.safeParse({ clientId, lines: [{ catalogItemId: itemId, quantity: 1, unitPrice: 0 }] }).success).toBe(true);
-    expect(orderCartSchema.safeParse({ clientId, lines: [{ catalogItemId: itemId, quantity: 1, unitPrice: "1.5" }] }).success).toBe(false);
+    expect(orderCartSchema.safeParse({ clientId, lines: [{ catalogItemId: itemId, quantity: 1, unitPrice: "1.5" }] }).success).toBe(true);
+    expect(orderCartSchema.safeParse({ clientId, lines: [{ catalogItemId: itemId, quantity: 1, unitPrice: "630,25" }] }).success).toBe(true);
+    expect(orderCartSchema.safeParse({ clientId, lines: [{ catalogItemId: itemId, quantity: 1, unitPrice: 630.25 }] }).success).toBe(true);
   });
 
   it("accepts a taxable free line with an initial zero price", () => {

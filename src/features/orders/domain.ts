@@ -7,12 +7,14 @@ export type OrderLineInput = {
   code?: string | null;
   description: string;
   quantity: number;
-  unitPrice: Money;
+  unitPrice: Money | number;
   taxRate: number;
   taxCategory?: "taxable" | "exempt";
 };
 
-export type CalculatedOrderLine = OrderLineInput & {
+export type CalculatedOrderLine = Omit<OrderLineInput, "unitPrice"> & {
+  unitPrice: Money | number;
+  unitPriceAmount: number;
   subtotal: Money;
   discountAmount: Money;
   discountedSubtotal: Money;
@@ -80,18 +82,29 @@ export function calculateOrder(lines: OrderLineInput[], discountPercent = 0, dis
   if (basisPoints > 0n && !normalizedReason) throw new AppError("DISCOUNT_REASON_REQUIRED", "Indica el motivo del descuento.");
 
   const withSubtotals = lines.map((line) => {
-    const subtotal = multiplyMoney(line.unitPrice, line.quantity);
-    return { line, subtotal };
+    const unitPriceNum = typeof line.unitPrice === "number" ? line.unitPrice : Number(line.unitPrice.minor);
+    const subtotal = clp(Math.round(unitPriceNum * line.quantity));
+    return { line, subtotal, unitPriceNum };
   });
   const subtotal = addMoney(...withSubtotals.map((line) => line.subtotal));
   const discount = clp((subtotal.minor * basisPoints + 5_000n) / 10_000n);
   const allocatedDiscounts = allocateProportionalDiscount(withSubtotals.map(({ subtotal: lineSubtotal }) => lineSubtotal.minor), discount.minor);
-  const calculated = withSubtotals.map(({ line, subtotal: lineSubtotal }, index) => {
+  const calculated = withSubtotals.map(({ line, subtotal: lineSubtotal, unitPriceNum }, index) => {
     const discountAmount = clp(allocatedDiscounts[index]!);
     const discountedSubtotal = clp(lineSubtotal.minor - discountAmount.minor);
     const taxable = line.taxCategory === "taxable" || (line.taxCategory === undefined && line.taxRate > 0);
     const tax = taxable ? calculateTax(discountedSubtotal, line.taxRate) : clp(0);
-    return { ...line, subtotal: lineSubtotal, discountAmount, discountedSubtotal, tax, taxAmount: tax, total: addMoney(discountedSubtotal, tax) };
+    return {
+      ...line,
+      unitPrice: line.unitPrice,
+      unitPriceAmount: unitPriceNum,
+      subtotal: lineSubtotal,
+      discountAmount,
+      discountedSubtotal,
+      tax,
+      taxAmount: tax,
+      total: addMoney(discountedSubtotal, tax),
+    };
   });
   const taxableBase = addMoney(...calculated.filter((line) => line.taxCategory === "taxable" || (line.taxCategory === undefined && line.taxRate > 0)).map((line) => line.discountedSubtotal));
   const exemptBase = addMoney(...calculated.filter((line) => line.taxCategory === "exempt" || (line.taxCategory === undefined && line.taxRate === 0)).map((line) => line.discountedSubtotal));

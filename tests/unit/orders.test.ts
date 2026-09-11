@@ -36,6 +36,15 @@ describe("payment-order domain", () => {
     expect(order.total.minor).toBe(1_000n);
   });
 
+  it("calculates order lines with decimal unit prices without crashing", () => {
+    const order = calculateOrder([{ description: "Item con decimales", quantity: 2, unitPrice: 630.25, taxRate: 19 }]);
+    expect(order.lines[0]?.unitPriceAmount).toBe(630.25);
+    expect(order.subtotal.minor).toBe(1261n);
+    expect(order.lines[0]?.subtotal.minor).toBe(1261n);
+    expect(order.tax.minor).toBe(240n);
+    expect(order.total.minor).toBe(1501n);
+  });
+
   it("requires a reason for a positive discount and permits zero discount without one", () => {
     expect(() => calculateOrder([{ description: "Servicio", quantity: 1, unitPrice: clp(100), taxRate: 19 }], 10, " ")).toThrow(AppError);
     expect(calculateOrder([{ description: "Servicio", quantity: 1, unitPrice: clp(100), taxRate: 19 }], 0).discount.minor).toBe(0n);
@@ -62,13 +71,15 @@ describe("payment-order domain", () => {
     expect(order.lines.reduce((sum, line) => sum + line.discountAmount.minor, 0n)).toBe(50n);
   });
 
-  it("enforces role-based integer CLP price overrides", () => {
+  it("enforces role-based CLP price overrides with decimal support", () => {
     expect(validateUnitPriceOverride(1_100, "1000.00", "operator")).toBe(1_100);
     expect(() => validateUnitPriceOverride(2_000, "1000.00", "operator")).toThrow(/rango/i);
     expect(validateUnitPriceOverride(0, "1000.00", "admin")).toBe(0);
     expect(() => validateUnitPriceOverride(-1, "1000.00", "admin")).toThrow(/entre 0/i);
     expect(() => validateUnitPriceOverride(Number.MAX_SAFE_INTEGER + 1, "1000.00", "admin")).toThrow(/máximo/i);
-    expect(() => validateUnitPriceOverride(1.5, "1000.00", "admin")).toThrow(/entero/i);
+    expect(validateUnitPriceOverride(1.5, "1000.00", "admin")).toBe(1.5);
+    expect(validateUnitPriceOverride("630,25", "1000.00", "admin")).toBe(630.25);
+    expect(() => validateUnitPriceOverride("abc", "1000.00", "admin")).toThrow(/válido/i);
   });
 
   it("rejects financial edits to settled orders", () => {

@@ -128,7 +128,7 @@ export function parseSignedDteXml(xml: string): ParsedDteDocument {
     description: optionalText(item.DscItem),
     quantity: decimal(item.QtyItem ?? "1", "DTE_XML_INVALID_LINE_QUANTITY"),
     unit: optionalText(item.UnmdItem),
-    unitPrice: integer(item.PrcItem, "DTE_XML_INVALID_LINE_PRICE"),
+    unitPrice: decimal(item.PrcItem, "DTE_XML_INVALID_LINE_PRICE"),
     amount: integer(item.MontoItem, "DTE_XML_INVALID_LINE_AMOUNT"),
     exempt: optionalText(item.IndExe) === "1",
     discountPercent: item.DescuentoPct === undefined ? null : decimal(item.DescuentoPct, "DTE_XML_INVALID_DISCOUNT"),

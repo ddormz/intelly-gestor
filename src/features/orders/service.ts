@@ -68,7 +68,7 @@ async function resolveCartLines(tx: Parameters<Parameters<ReturnType<typeof getD
           code: itemName ? itemName.slice(0, 50) : null,
           description: itemDesc.slice(0, 240),
           quantity: line.quantity,
-          unitPrice: clp(line.unitPrice),
+          unitPrice: line.unitPrice,
           taxRate: isExempt ? 0 : 19,
           taxCategory: isExempt ? "exempt" : "taxable",
         },
@@ -85,7 +85,7 @@ async function resolveCartLines(tx: Parameters<Parameters<ReturnType<typeof getD
         code: item.code,
         description: item.name,
         quantity: line.quantity,
-        unitPrice: clp(unitPrice),
+        unitPrice,
         taxRate: Number(item.taxRate),
         taxCategory: item.taxCategory,
       },
@@ -124,21 +124,25 @@ export async function createOrderFromCart(input: OrderCartInput, userId: string,
       createdBy: userId,
       updatedBy: userId,
     });
-    await tx.insert(paymentOrderLines).values(calculated.lines.map((line, index) => ({
-      id: randomUUID(),
-      paymentOrderId: id,
-      catalogItemId: line.catalogItemId ?? null,
-      code: line.code,
-      description: line.description,
-      quantity: String(line.quantity),
-      unitPrice: String(line.unitPrice.minor),
-      discountAmount: String(line.discountAmount.minor),
-      taxRate: resolved[index]?.item?.taxRate ?? String(line.taxRate),
-      subtotal: String(line.subtotal.minor),
-      taxAmount: String(line.taxAmount.minor),
-      total: String(line.total.minor),
-      sortOrder: index,
-    })));
+    await tx.insert(paymentOrderLines).values(calculated.lines.map((line, index) => {
+      const priceNum = line.unitPriceAmount;
+      const priceStr = Number.isInteger(priceNum) ? String(priceNum) : priceNum.toFixed(2);
+      return {
+        id: randomUUID(),
+        paymentOrderId: id,
+        catalogItemId: line.catalogItemId ?? null,
+        code: line.code,
+        description: line.description,
+        quantity: String(line.quantity),
+        unitPrice: priceStr,
+        discountAmount: String(line.discountAmount.minor),
+        taxRate: resolved[index]?.item?.taxRate ?? String(line.taxRate),
+        subtotal: String(line.subtotal.minor),
+        taxAmount: String(line.taxAmount.minor),
+        total: String(line.total.minor),
+        sortOrder: index,
+      };
+    }));
     await auditOrder(tx, userId, "order.created", id, { lineCount: calculated.lines.length, discount: String(calculated.discount.minor) });
     return id;
   });
@@ -147,7 +151,7 @@ export async function createOrderFromCart(input: OrderCartInput, userId: string,
 export async function createOrder(input: { clientId: string; catalogItemId: string; quantity: number; userId: string }, role: OrderActorRole = "operator") {
   const [item] = await getDb().select({ unitPrice: catalogItems.unitPrice }).from(catalogItems).where(eq(catalogItems.id, input.catalogItemId)).limit(1).execute();
   if (!item) throw new AppError("ITEM_NOT_FOUND", "El producto o servicio no está disponible.", 404);
-  return createOrderFromCart({ clientId: input.clientId, lines: [{ catalogItemId: input.catalogItemId, quantity: input.quantity, unitPrice: Number(decimalToMinor(item.unitPrice)) }], discountPercent: 0, discountReason: "" }, input.userId, role);
+  return createOrderFromCart({ clientId: input.clientId, lines: [{ catalogItemId: input.catalogItemId, quantity: input.quantity, unitPrice: Number(item.unitPrice) }], discountPercent: 0, discountReason: "" }, input.userId, role);
 }
 
 export type UpdateOrderInput = OrderCartInput & { id: string };
@@ -163,7 +167,21 @@ function orderPublicDataChanged(order: typeof paymentOrders["$inferSelect"], pre
   if (previousLines.length !== nextLines.length) return true;
   return previousLines.some((line, index) => {
     const next = nextLines[index];
-    return !next || line.catalogItemId !== (next.catalogItemId ?? null) || line.code !== next.code || line.description !== next.description || Number(line.quantity) !== next.quantity || decimalToMinor(line.unitPrice) !== next.unitPrice.minor || decimalToMinor(line.discountAmount) !== next.discountAmount.minor || Number(line.taxRate) !== next.taxRate || decimalToMinor(line.subtotal) !== next.subtotal.minor || decimalToMinor(line.taxAmount) !== next.taxAmount.minor || decimalToMinor(line.total) !== next.total.minor;
+    if (!next) return true;
+    const nextPriceNum = next.unitPriceAmount;
+    const linePriceNum = Number(line.unitPrice);
+    return (
+      line.catalogItemId !== (next.catalogItemId ?? null) ||
+      line.code !== next.code ||
+      line.description !== next.description ||
+      Number(line.quantity) !== next.quantity ||
+      Math.abs(linePriceNum - nextPriceNum) > 0.001 ||
+      decimalToMinor(line.discountAmount) !== next.discountAmount.minor ||
+      Number(line.taxRate) !== next.taxRate ||
+      decimalToMinor(line.subtotal) !== next.subtotal.minor ||
+      decimalToMinor(line.taxAmount) !== next.taxAmount.minor ||
+      decimalToMinor(line.total) !== next.total.minor
+    );
   });
 }
 
@@ -201,11 +219,25 @@ export async function updateOrderFromCart(input: UpdateOrderInput, userId: strin
     }).where(and(eq(paymentOrders.id, id), eq(paymentOrders.version, expectedVersion))).execute();
     if (Number(updateResult[0]?.affectedRows ?? 0) !== 1) throw new AppError("ORDER_VERSION_CONFLICT", "La orden cambió mientras la editabas. Recarga e intenta nuevamente.", 409);
     await tx.delete(paymentOrderLines).where(eq(paymentOrderLines.paymentOrderId, id)).execute();
-    await tx.insert(paymentOrderLines).values(calculated.lines.map((line, index) => ({
-      id: randomUUID(), paymentOrderId: id, catalogItemId: line.catalogItemId ?? null, code: line.code, description: line.description,
-      quantity: String(line.quantity), unitPrice: String(line.unitPrice.minor), discountAmount: String(line.discountAmount.minor), taxRate: resolved[index]?.item?.taxRate ?? String(line.taxRate),
-      subtotal: String(line.subtotal.minor), taxAmount: String(line.taxAmount.minor), total: String(line.total.minor), sortOrder: index,
-    })));
+    await tx.insert(paymentOrderLines).values(calculated.lines.map((line, index) => {
+      const priceNum = line.unitPriceAmount;
+      const priceStr = Number.isInteger(priceNum) ? String(priceNum) : priceNum.toFixed(2);
+      return {
+        id: randomUUID(),
+        paymentOrderId: id,
+        catalogItemId: line.catalogItemId ?? null,
+        code: line.code,
+        description: line.description,
+        quantity: String(line.quantity),
+        unitPrice: priceStr,
+        discountAmount: String(line.discountAmount.minor),
+        taxRate: resolved[index]?.item?.taxRate ?? String(line.taxRate),
+        subtotal: String(line.subtotal.minor),
+        taxAmount: String(line.taxAmount.minor),
+        total: String(line.total.minor),
+        sortOrder: index,
+      };
+    }));
     await auditOrder(tx, userId, "order.updated", id, { lineCount: calculated.lines.length, financial: orderPublicDataChanged(order, previousLines, calculated.lines, parsed), publicTokenRotated: Boolean(token) });
     return token ? { publicToken: token, publicLink: `/orden/${token}` } : {};
   });
