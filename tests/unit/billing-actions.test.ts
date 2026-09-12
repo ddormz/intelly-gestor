@@ -37,4 +37,14 @@ describe("billing server actions", () => {
 
     expect(result).toEqual({ status: "success", message: "Factura aceptada por el SII." });
   });
+
+  it("reports a pre-folio provider failure without calling it an SII rejection", async () => {
+    mocks.issueInvoice.mockResolvedValueOnce({ kind: "failed", code: "ASYNC_SII_UPLOAD_DISABLED", safeMessage: "La emisión asíncrona está deshabilitada.", retryable: false });
+    const formData = new FormData();
+    formData.set("orderId", "order-1");
+
+    const result = await issueInvoiceAction({ status: "idle" }, formData);
+
+    expect(result).toEqual({ status: "error", message: "La emisión asíncrona está deshabilitada." });
+  });
 });

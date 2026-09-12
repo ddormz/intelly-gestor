@@ -28,7 +28,7 @@ const envSchema = z.object({
   INTELLYDTE_TENANT_RUT: z.string().trim().optional(),
   INTELLYDTE_COMPANY_TAX_ID: z.string().optional(),
   INTELLYDTE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
-  INTELLYDTE_EMISSION_MODE: z.enum(["sync", "async", "fast-ack"]).default("async"),
+  INTELLYDTE_EMISSION_MODE: z.enum(["sync", "async", "fast-ack"]).default("fast-ack"),
   INTELLYDTE_WEBHOOK_SECRET: z.string().trim().optional(),
   FISCAL_EVIDENCE_DIR: z.string().trim().min(1).default("data/fiscal-evidence"),
   WEBPAY_COMMERCE_CODE: z.string().trim().optional(),

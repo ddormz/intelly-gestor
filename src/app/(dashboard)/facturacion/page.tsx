@@ -20,14 +20,18 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
       total={items.total}
       items={items.items.map((item) => ({
         id: item.id,
+        orderId: item.orderId,
         orderNumber: item.orderNumber,
         clientName: item.clientName,
         clientEmail: item.clientEmail,
         total: item.total,
         status: item.status,
+        providerDocumentId: item.providerDocumentId,
         folio: item.folio,
         siiStatus: item.siiStatus,
         siiGlosa: item.siiGlosa,
+        lastErrorCode: item.lastErrorCode,
+        lastErrorMessage: item.lastErrorMessage,
         hasPdf: Boolean(item.hasPdf),
         hasXml: Boolean(item.hasXml),
       }))}

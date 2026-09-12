@@ -21,6 +21,16 @@ describe("typed IntellyDTE gateway", () => {
     expect(result).toMatchObject({ kind: "issued", providerDocumentId: "dte-1", folio: "42", trackId: null, siiStatus: "ENQUEUED", signedXmlBase64 });
   });
 
+  it("uses fast-ack by default for an integrated sale", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ success: true, data: { dteRecordId: "dte-fast", folio: 41, siiStatus: "ENQUEUED", printPayload: { signedXmlBase64 } } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const gateway = new IntellyDteHttpGateway({ baseUrl: "https://dte.example", tenantApiKey: "ik_tenant", tenantRut: "76123456-7", timeoutMs: 1000 });
+
+    await gateway.issueInvoice({ idempotencyKey: "invoice:fast", correlationId: "corr-fast", orderNumber: "OP-FAST", total: "1190", recipientTaxId: "76123456-7", payload: { receptor: { rut: "76123456-7", razonSocial: "Cliente" }, items: [], montoTotal: 1190 } });
+
+    expect(fetchMock).toHaveBeenCalledWith("https://dte.example/api/v1/dte/factura", expect.objectContaining({ headers: expect.objectContaining({ "x-intelly-emission-mode": "fast-ack" }) }));
+  });
+
   it("normalizes the body.data envelope returned by IntellyDTE", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({
       body: {
@@ -59,7 +69,7 @@ describe("typed IntellyDTE gateway", () => {
     for (const [status, expected] of [[401, "INTELLYDTE_UNAUTHORIZED"], [409, "INTELLYDTE_CONFLICT"], [500, "INTELLYDTE_UNAVAILABLE"], [400, "INVALID_INVOICE"]] as const) {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ error: { code: expected, message: "provider" } }, status)));
       const result = await gateway.issueInvoice(command);
-      expect(result.kind).toBe(status === 500 ? "pending" : "rejected");
+      expect(result.kind).toBe(status === 500 ? "pending" : "failed");
     }
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("timed out", "TimeoutError")));
     expect((await gateway.issueInvoice(command)).kind).toBe("pending");
@@ -73,6 +83,21 @@ describe("typed IntellyDTE gateway", () => {
     const result = await new IntellyDteHttpGateway({ baseUrl: "https://dte.example", tenantApiKey: "ik_tenant", systemApiKey: "isk_system", tenantRut: "76123456-7", emissionMode: "async", timeoutMs: 1000 }).getInvoiceStatus("dte-1");
     expect(fetchMock).toHaveBeenCalledWith("https://dte.example/api/v1/integrations/dte/dte-1/status", expect.objectContaining({ method: "GET", headers: expect.objectContaining({ "x-api-key": "isk_system", "x-tenant-rut": "76123456-7" }) }));
     expect(result).toMatchObject({ kind: "issued", providerDocumentId: "dte-1", trackId: "track-1", siiStatus: "ACEPTADO" });
+  });
+
+  it("keeps a pre-folio async configuration error pending locally and preserves its code", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      statusCode: 409,
+      body: JSON.stringify({
+        error: "ASYNC_SII_UPLOAD_DISABLED",
+        message: "La emisión asíncrona controlada está deshabilitada.",
+      }),
+    }, 200)));
+    const gateway = new IntellyDteHttpGateway({ baseUrl: "https://dte.example", tenantApiKey: "ik_tenant", tenantRut: "76123456-7", emissionMode: "async", timeoutMs: 1000 });
+
+    const result = await gateway.issueInvoice({ idempotencyKey: "invoice:order-1", correlationId: "corr-1", orderNumber: "OP-1", total: "1190", recipientTaxId: "76123456-7", payload: { receptor: { rut: "76123456-7", razonSocial: "Cliente" }, items: [], montoTotal: 1190 } });
+
+    expect(result).toMatchObject({ kind: "failed", code: "ASYNC_SII_UPLOAD_DISABLED", statusCode: 409, retryable: false });
   });
 
   it("keeps an enqueued status pending when the status endpoint has not confirmed SII acceptance", async () => {

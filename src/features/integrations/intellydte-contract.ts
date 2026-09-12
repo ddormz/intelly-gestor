@@ -52,9 +52,29 @@ export type NormalizedProviderData = {
 export type ProviderBody = Record<string, unknown>;
 export type ProviderError = { code: string; message: string };
 
+function providerEnvelope(payload: unknown): ProviderBody {
+  const root = payload && typeof payload === "object" ? payload as ProviderBody : {};
+  if (root.body && typeof root.body === "object") return root.body as ProviderBody;
+  if (typeof root.body === "string") {
+    try {
+      const parsed = JSON.parse(root.body) as unknown;
+      if (parsed && typeof parsed === "object") return parsed as ProviderBody;
+    } catch {
+      // Keep the original envelope when an API Gateway body is not JSON.
+    }
+  }
+  return root;
+}
+
+export function providerHttpStatus(payload: unknown, fallbackStatus: number): number {
+  const root = payload && typeof payload === "object" ? payload as ProviderBody : {};
+  const body = providerEnvelope(payload);
+  const candidate = Number(body.statusCode ?? root.statusCode);
+  return Number.isInteger(candidate) && candidate >= 100 && candidate <= 599 ? candidate : fallbackStatus;
+}
+
 export function providerData(payload: unknown): NormalizedProviderData {
-  const root = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
-  const body = root.body && typeof root.body === "object" ? root.body as Record<string, unknown> : root;
+  const body = providerEnvelope(payload);
   const value = body.data && typeof body.data === "object" ? body.data as Record<string, unknown> : body;
   const printPayload = value.printPayload && typeof value.printPayload === "object" ? value.printPayload as Record<string, unknown> : undefined;
   const printPdf = printPayload?.pdf && typeof printPayload.pdf === "object" ? printPayload.pdf as Record<string, unknown> : undefined;
@@ -80,9 +100,13 @@ export function providerData(payload: unknown): NormalizedProviderData {
 }
 
 export function providerError(payload: unknown, fallbackCode: string, fallbackMessage: string): ProviderError {
-  const root = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
-  const data = root.error && typeof root.error === "object" ? root.error as Record<string, unknown> : root.data && typeof root.data === "object" ? root.data as Record<string, unknown> : root;
-  return { code: stringValue(data.code ?? data.errorCode ?? root.code) ?? fallbackCode, message: stringValue(data.message ?? data.error ?? root.message) ?? fallbackMessage };
+  const root = providerEnvelope(payload);
+  const data = root.error && typeof root.error === "object" ? root.error as ProviderBody : root.data && typeof root.data === "object" ? root.data as ProviderBody : root;
+  const scalarError = stringValue(root.error);
+  return {
+    code: stringValue(data.code ?? data.errorCode ?? root.code) ?? scalarError ?? fallbackCode,
+    message: stringValue(data.message ?? (typeof data.error === "string" ? data.error : undefined) ?? root.message) ?? fallbackMessage,
+  };
 }
 
 function stringValue(value: unknown): string | undefined {

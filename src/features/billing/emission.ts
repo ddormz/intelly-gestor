@@ -6,8 +6,8 @@ import { getIntellyDteWebhookSecret } from "@/features/integrations/config-servi
 import { getIntellyDteConfig, normalizeIntellyDteTenantRut } from "@/features/integrations/config-service";
 import { getCompanySettings } from "@/features/company/service";
 import { getIntellyDteGateway, type IntellyDteGateway, type InvoiceResult } from "@/features/integrations/intellydte";
-import { isSiiAcceptedStatus } from "@/features/integrations/sii-status";
-import { providerData, type IntellyDteFacturaPayload } from "@/features/integrations/intellydte-contract";
+import { isSiiAcceptedStatus, isSiiRejectedStatus } from "@/features/integrations/sii-status";
+import { providerData, providerError, type IntellyDteFacturaPayload } from "@/features/integrations/intellydte-contract";
 import { validChileanRut } from "@/features/clients/validation";
 import { getEnv } from "@/lib/env";
 import { AppError } from "@/lib/errors";
@@ -166,7 +166,13 @@ export async function regenerateInvoicePdf(invoiceId: string, userId: string, ga
 }
 
 function resultMessage(result: InvoiceResult): string {
-  return result.kind === "rejected" ? result.safeMessage : result.kind === "pending" ? "Emisión pendiente de conciliación." : result.kind === "unavailable" ? result.safeMessage : "Factura emitida.";
+  if (result.kind === "issued") return "Factura emitida.";
+  if (result.kind === "pending") return result.safeMessage ?? "Emisión pendiente de conciliación.";
+  return result.safeMessage;
+}
+
+function resultCode(result: Exclude<InvoiceResult, { kind: "issued" }>): string {
+  return result.code ?? result.providerCode ?? "EMISSION_PENDING";
 }
 
 type BillingDb = ReturnType<typeof getDb>;
@@ -223,8 +229,8 @@ function providerResponseBody(result: InvoiceResult): Record<string, unknown> | 
 
 async function applyInvoiceResult(db: BillingDb, invoice: typeof invoices["$inferSelect"], orderId: string, attemptId: string, result: InvoiceResult, payload: IntellyDteFacturaPayload, userId: string): Promise<InvoiceResult> {
   const now = new Date();
-  if (((invoice.status === "issued" && isSiiAcceptedStatus(invoice.siiStatus)) || invoice.status === "rejected") && result.kind !== "issued") {
-    await db.update(integrationAttempts).set({ status: "ignored", completedAt: now, providerCode: result.kind === "rejected" ? result.code : result.providerCode, responseBody: providerResponseBody(result), safeMessage: "Evento o conciliación ignorada por estado terminal local." }).where(eq(integrationAttempts.id, attemptId));
+  if (((invoice.status === "issued" && isSiiAcceptedStatus(invoice.siiStatus)) || (invoice.status === "rejected" && isSiiRejectedStatus(invoice.siiStatus))) && result.kind !== "issued") {
+    await db.update(integrationAttempts).set({ status: "ignored", completedAt: now, providerCode: result.kind === "rejected" || result.kind === "failed" || result.kind === "unavailable" ? result.code : result.providerCode, responseBody: providerResponseBody(result), safeMessage: "Evento o conciliación ignorada por estado terminal local." }).where(eq(integrationAttempts.id, attemptId));
     return result;
   }
   if (result.kind === "issued") {
@@ -267,11 +273,13 @@ async function applyInvoiceResult(db: BillingDb, invoice: typeof invoices["$infe
     });
     return result;
   }
-  const status = result.kind === "rejected" ? "rejected" : "pending";
+  const status: "rejected" | "pending" = result.kind === "rejected" ? "rejected" : "pending";
+  const attemptStatus = result.kind === "rejected" ? "rejected" : result.kind === "pending" ? "pending" : "failed";
+  const errorCode = resultCode(result);
   await db.transaction(async (tx) => {
-    await tx.update(invoices).set({ status, providerDocumentId: result.providerDocumentId ?? invoice.providerDocumentId, folio: result.folio ?? invoice.folio, trackId: result.trackId ?? invoice.trackId, siiStatus: result.siiStatus ?? invoice.siiStatus, siiGlosa: result.siiGlosa ?? invoice.siiGlosa, lastErrorCode: result.kind === "rejected" ? result.code : result.providerCode ?? "EMISSION_PENDING", lastErrorMessage: resultMessage(result).slice(0, 300), evidenceStatus: invoice.signedXmlEvidenceId ? invoice.evidenceStatus : "pending", updatedAt: now }).where(eq(invoices.id, invoice.id));
-    await tx.update(integrationAttempts).set({ status, completedAt: now, providerCode: result.kind === "rejected" ? result.code : result.providerCode, providerDocumentId: result.providerDocumentId, responseBody: providerResponseBody(result), safeMessage: resultMessage(result).slice(0, 300) }).where(eq(integrationAttempts.id, attemptId));
-    await tx.insert(auditEvents).values(buildAuditEvent({ actorUserId: userId, actorType: "user", action: status === "rejected" ? "invoice.rejected" : "invoice.pending", entityType: "invoice", entityId: invoice.id, metadata: { providerDocumentId: result.providerDocumentId ?? null, providerCode: result.kind === "rejected" ? result.code : result.providerCode ?? null } }));
+    await tx.update(invoices).set({ status, providerDocumentId: result.providerDocumentId ?? invoice.providerDocumentId, folio: result.folio ?? invoice.folio, trackId: result.trackId ?? invoice.trackId, siiStatus: result.siiStatus ?? invoice.siiStatus, siiGlosa: result.siiGlosa ?? invoice.siiGlosa, lastErrorCode: errorCode, lastErrorMessage: resultMessage(result).slice(0, 300), evidenceStatus: invoice.signedXmlEvidenceId ? invoice.evidenceStatus : "pending", rejectedAt: status === "rejected" ? now : null, updatedAt: now }).where(eq(invoices.id, invoice.id));
+    await tx.update(integrationAttempts).set({ status: attemptStatus, completedAt: now, httpStatus: result.statusCode, providerCode: errorCode, providerDocumentId: result.providerDocumentId, responseBody: providerResponseBody(result), safeMessage: resultMessage(result).slice(0, 300) }).where(eq(integrationAttempts.id, attemptId));
+    await tx.insert(auditEvents).values(buildAuditEvent({ actorUserId: userId, actorType: "user", action: status === "rejected" ? "invoice.rejected" : result.kind === "failed" || result.kind === "unavailable" ? "invoice.emission_failed" : "invoice.pending", entityType: "invoice", entityId: invoice.id, metadata: { providerDocumentId: result.providerDocumentId ?? null, providerCode: errorCode, retryable: result.kind === "pending" ? true : result.retryable } }));
   });
   return result;
 }
@@ -312,18 +320,22 @@ export async function issueInvoice(orderId: string, userId: string, gateway?: In
   const provider = gateway ?? await getIntellyDteGateway();
   if (existing?.status === "issued" && isSiiAcceptedStatus(existing.siiStatus) && existing.evidenceStatus !== "pending") return { kind: "issued", providerDocumentId: existing.providerDocumentId ?? "", folio: existing.folio ?? "", issuedAt: existing.issuedAt?.toISOString() ?? new Date().toISOString(), trackId: existing.trackId, siiStatus: existing.siiStatus, siiGlosa: existing.siiGlosa };
   const invoiceId = existing?.id ?? randomUUID();
-  if (existing && (existing.status === "pending" || existing.status === "processing" || Boolean(existing.providerDocumentId) || existing.evidenceStatus === "pending")) {
-    if (!existing.providerDocumentId) return { kind: "pending", providerCode: "STATUS_RECONCILIATION_REQUIRED" };
+  if (existing?.status === "rejected" && isSiiRejectedStatus(existing.siiStatus)) return { kind: "rejected", code: existing.lastErrorCode ?? "SII_REJECTED", safeMessage: existing.lastErrorMessage ?? existing.siiGlosa ?? "El SII rechazó el documento.", retryable: false, providerDocumentId: existing.providerDocumentId ?? undefined, folio: existing.folio ?? undefined, siiStatus: existing.siiStatus, siiGlosa: existing.siiGlosa };
+  if (existing?.providerDocumentId) {
     const previousAttempt = await latestAttempt(db, invoiceId);
     const attempt = await createAttempt(db, invoiceId, idempotencyKey, hash, payload, (previousAttempt?.attemptNumber ?? 0) + 1, "reconcile_invoice_status");
     const statusResult = await provider.getInvoiceStatus(existing.providerDocumentId);
     return applyInvoiceResult(db, existing, orderId, attempt.id, statusResult, payload, userId);
   }
-  if (!existing) await db.insert(invoices).values({ id: invoiceId, paymentOrderId: orderId, status: "processing", requestHash: hash, tenantRut });
-  else await db.update(invoices).set({ status: "processing", requestHash: hash, lastErrorCode: null, lastErrorMessage: null, updatedAt: new Date() }).where(eq(invoices.id, invoiceId));
+  if (existing?.folio || existing?.signedXmlEvidenceId) return { kind: "pending", code: "STATUS_RECONCILIATION_REQUIRED", safeMessage: "Existe evidencia de emisión sin identificador del proveedor; requiere conciliación manual.", providerCode: "STATUS_RECONCILIATION_REQUIRED" };
   const previousAttempt = await latestAttempt(db, invoiceId);
+  if ((previousAttempt?.attemptNumber ?? 0) >= 5) throw new AppError("DTE_RETRY_LIMIT_REACHED", "La emisión alcanzó el máximo de 5 intentos y requiere revisión manual.", 409);
+  if (!existing) await db.insert(invoices).values({ id: invoiceId, paymentOrderId: orderId, status: "processing", requestHash: hash, tenantRut });
+  else await db.update(invoices).set({ status: "processing", requestHash: hash, lastErrorCode: null, lastErrorMessage: null, rejectedAt: null, updatedAt: new Date() }).where(eq(invoices.id, invoiceId));
   const attempt = await createAttempt(db, invoiceId, idempotencyKey, hash, payload, (previousAttempt?.attemptNumber ?? 0) + 1);
-  const result = await provider.issueInvoice({ idempotencyKey, correlationId: attempt.correlationId, orderNumber: order.number, total: order.total, recipientTaxId: order.clientTaxId ?? "", payload });
+  const previousProviderCode = previousAttempt ? providerError(previousAttempt.responseBody, previousAttempt.providerCode ?? "", "").code : "";
+  const preserveLegacyAsyncMode = Boolean(existing && [existing.lastErrorCode, previousProviderCode].some((code) => /^(?:ASYNC_|IDEMPOTENCY_PREVIOUSLY_FAILED)/.test(code ?? "")));
+  const result = await provider.issueInvoice({ idempotencyKey, correlationId: attempt.correlationId, orderNumber: order.number, total: order.total, recipientTaxId: order.clientTaxId ?? "", payload, ...(preserveLegacyAsyncMode ? { emissionMode: "async" as const } : {}) });
   return applyInvoiceResult(db, { ...(existing ?? { id: invoiceId, paymentOrderId: orderId, status: "processing", providerDocumentId: null, folio: null, trackId: null, siiStatus: null, siiGlosa: null, signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null, evidenceStatus: "pending", evidenceError: null, issuedAt: null }) } as typeof invoices["$inferSelect"], orderId, attempt.id, result, payload, userId);
 }
 

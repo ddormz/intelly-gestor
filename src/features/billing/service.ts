@@ -17,9 +17,12 @@ const invoiceFields = {
   clientEmail: clients.email,
   total: paymentOrders.total,
   status: invoices.status,
+  providerDocumentId: invoices.providerDocumentId,
   folio: invoices.folio,
   siiStatus: invoices.siiStatus,
   siiGlosa: invoices.siiGlosa,
+  lastErrorCode: invoices.lastErrorCode,
+  lastErrorMessage: invoices.lastErrorMessage,
   hasPdf: invoices.reconstructedPdfEvidenceId,
   hasXml: invoices.signedXmlEvidenceId,
   createdAt: invoices.createdAt,
@@ -33,9 +36,12 @@ export type InvoiceListItem = {
   clientEmail: string;
   total: string;
   status: "pending" | "processing" | "issued" | "rejected";
+  providerDocumentId: string | null;
   folio: string | null;
   siiStatus: string | null;
   siiGlosa: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
   hasPdf: string | null;
   hasXml: string | null;
   createdAt: Date;

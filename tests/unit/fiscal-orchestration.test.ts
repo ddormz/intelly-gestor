@@ -141,6 +141,31 @@ describe("fiscal emission orchestration", () => {
     expect(status).toHaveBeenCalledWith("dte-1");
   });
 
+  it("retries a pre-folio provider failure with the same fiscal request and keeps it pending", async () => {
+    const db = configuredDb([{ id: "invoice-1", paymentOrderId: "order-1", status: "rejected", providerDocumentId: null, folio: null, tenantRut: "76123456-0", trackId: null, siiStatus: null, siiGlosa: null, signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null, evidenceStatus: "pending", evidenceError: null, issuedAt: null, rejectedAt: new Date(), lastErrorCode: "ASYNC_SII_UPLOAD_DISABLED", lastErrorMessage: "Async deshabilitado" }], [{ attemptNumber: 1 }]);
+    const issue = vi.fn(async () => ({ kind: "failed" as const, code: "ASYNC_SII_UPLOAD_DISABLED", safeMessage: "Async deshabilitado", retryable: false, statusCode: 409 }));
+    const gateway = { issueInvoice: issue, getInvoiceStatus: vi.fn(), health: vi.fn(), lookupRut: vi.fn() } as unknown as IntellyDteGateway;
+
+    const result = await issueInvoice("order-1", "user-1", gateway);
+
+    expect(result).toMatchObject({ kind: "failed", code: "ASYNC_SII_UPLOAD_DISABLED" });
+    expect(issue).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: "invoice:order-1", orderNumber: "OP-1", emissionMode: "async" }));
+    expect(gateway.getInvoiceStatus).not.toHaveBeenCalled();
+    expect(db.updates).toContainEqual(expect.objectContaining({ status: "pending", rejectedAt: null, lastErrorCode: "ASYNC_SII_UPLOAD_DISABLED" }));
+  });
+
+  it("does not re-emit a document that has an actual SII rejection", async () => {
+    configuredDb([{ id: "invoice-1", paymentOrderId: "order-1", status: "rejected", providerDocumentId: "dte-rejected", folio: "51", tenantRut: "76123456-0", trackId: null, siiStatus: "RPR", siiGlosa: "Documento rechazado", signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null, evidenceStatus: "pending", evidenceError: null, issuedAt: null, lastErrorCode: "SII_REJECTED", lastErrorMessage: "Documento rechazado" }], []);
+    const issue = vi.fn();
+    const gateway = { issueInvoice: issue, getInvoiceStatus: vi.fn(), health: vi.fn(), lookupRut: vi.fn() } as unknown as IntellyDteGateway;
+
+    const result = await issueInvoice("order-1", "user-1", gateway);
+
+    expect(result).toMatchObject({ kind: "rejected", code: "SII_REJECTED", folio: "51" });
+    expect(issue).not.toHaveBeenCalled();
+    expect(gateway.getInvoiceStatus).not.toHaveBeenCalled();
+  });
+
   it("rebuilds a missing PDF from stored XML without calling IntellyDTE", async () => {
     const invoice = { id: "invoice-1", paymentOrderId: "order-1", status: "issued", providerDocumentId: "dte-1", folio: "42", tenantRut: "76123456-0", trackId: null, siiStatus: "DOK", siiGlosa: "Documento aceptado", signedXmlEvidenceId: "xml-evidence", reconstructedPdfEvidenceId: null, evidenceStatus: "pending", evidenceError: "PDF pendiente", issuedAt: new Date("2026-08-15T12:00:00.000Z") };
     const selects = [builder([invoice]), builder([{ subtotal: "1000", total: "1190", taxTotal: "190", discountTotal: "0", notes: null, clientTaxId: "12345678-5", clientName: "CLIENTE SPA", clientGiro: "Comercio", clientAddress: "Destino", clientCommune: "Providencia", clientCity: "Santiago", clientEmail: "client@example.com" }]), builder([{ description: "Servicio", quantity: "2", unitPrice: "500", subtotal: "1000", discountAmount: "0", taxRate: "19", taxAmount: "190", total: "1190", sortOrder: 0 }]), builder([])];

@@ -42,21 +42,25 @@ import {
   sendInvoiceEmailAction,
   syncFoliosAction,
 } from "@/features/billing/actions";
-import { isSiiAcceptedStatus } from "@/features/integrations/sii-status";
+import { isSiiAcceptedStatus, isSiiRejectedStatus } from "@/features/integrations/sii-status";
 import { formatClpAmount } from "@/lib/money";
 import type { PageQuery } from "@/lib/list-query";
 import type { FolioStatusItem } from "@/features/integrations/intellydte-contract";
 
 type InvoiceItem = {
   id: string;
+  orderId: string;
   orderNumber: string;
   clientName: string;
   clientEmail: string;
   total: string;
   status: string;
+  providerDocumentId: string | null;
   folio: string | null;
   siiStatus: string | null;
   siiGlosa: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
   hasPdf: boolean;
   hasXml: boolean;
 };
@@ -68,18 +72,22 @@ type ReadyOrder = {
   total: string;
 };
 
-function FiscalStatusIcon({ status, siiStatus }: { status: string; siiStatus: string | null }) {
+function FiscalStatusIcon({ status, siiStatus, providerDocumentId, folio, hasEmissionError }: { status: string; siiStatus: string | null; providerDocumentId: string | null; folio: string | null; hasEmissionError: boolean }) {
   const normalizedSiiStatus = siiStatus?.trim().toLowerCase();
   const siiSubmissionPending = normalizedSiiStatus === "enqueued" || normalizedSiiStatus === "emp" || normalizedSiiStatus === "submitted";
-  const presentation = status === "rejected"
+  const presentation = status === "rejected" && isSiiRejectedStatus(siiStatus)
     ? { label: "Rechazado por el SII", className: "bg-red-100 text-red-700", icon: <CircleX aria-hidden="true" size={14} /> }
+    : hasEmissionError && !providerDocumentId && !folio
+      ? { label: "Emisión pendiente", className: "bg-amber-100 text-amber-700", icon: <AlertTriangle aria-hidden="true" size={14} /> }
     : normalizedSiiStatus === "observado" || normalizedSiiStatus === "observed"
       ? { label: "Observado por el SII", className: "bg-amber-100 text-amber-700", icon: <AlertTriangle aria-hidden="true" size={14} /> }
       : isSiiAcceptedStatus(siiStatus)
         ? { label: "Aceptado por SII", className: "bg-emerald-100 text-emerald-700", icon: <BadgeCheck aria-hidden="true" size={14} /> }
         : status === "processing" && !siiSubmissionPending
           ? { label: "En revisión por el SII", className: "bg-amber-100 text-amber-700", icon: <Clock3 aria-hidden="true" size={14} /> }
-          : { label: "Enviado al SII", className: "bg-blue-100 text-blue-700", icon: <ArrowRight aria-hidden="true" size={14} /> };
+          : providerDocumentId || folio || siiSubmissionPending
+            ? { label: "Enviado al SII", className: "bg-blue-100 text-blue-700", icon: <ArrowRight aria-hidden="true" size={14} /> }
+            : { label: "Pendiente DTE", className: "bg-amber-100 text-amber-700", icon: <Clock3 aria-hidden="true" size={14} /> };
   return <span className={`inline-flex items-center justify-center rounded-full p-1 leading-none ${presentation.className}`} title={presentation.label} aria-label={presentation.label}>{presentation.icon}</span>;
 }
 
@@ -469,14 +477,15 @@ export function BillingManager({
               {items.map((item) => (
                 <tr key={item.id}>
                   <td data-label="Orden" className="font-mono text-xs">
-                    {item.orderNumber}
+                    <span>{item.orderNumber}</span>
+                    {item.lastErrorMessage && !isSiiRejectedStatus(item.siiStatus) ? <span className="mt-1 block max-w-72 font-sans text-[11px] leading-4 text-amber-700" title={item.lastErrorCode ?? undefined}>{item.lastErrorMessage}</span> : null}
                   </td>
                   <td data-label="Cliente" className="font-medium">
                     {item.clientName}
                   </td>
                   <td data-label="Folio">
                     <span className="inline-flex items-center gap-2">
-                      <FiscalStatusIcon status={item.status} siiStatus={item.siiStatus} />
+                      <FiscalStatusIcon status={item.status} siiStatus={item.siiStatus} providerDocumentId={item.providerDocumentId} folio={item.folio} hasEmissionError={Boolean(item.lastErrorMessage)} />
                       <span>{item.folio ?? "—"}</span>
                     </span>
                   </td>
@@ -485,7 +494,7 @@ export function BillingManager({
                   </td>
                   <td data-label="Acciones">
                     <div className="flex flex-wrap justify-end gap-2">
-                      {item.status === "pending" || item.status === "processing" || item.status === "issued" && (!item.hasPdf || !item.hasXml) ? (
+                      {(item.providerDocumentId && (item.status === "pending" || item.status === "processing" || item.status === "issued" && (!item.hasPdf || !item.hasXml))) ? (
                         <ActionModal
                           iconOnly
                           triggerLabel={item.status === "issued" ? "Reintentar archivos tributarios" : "Actualizar estado fiscal"}
@@ -510,6 +519,20 @@ export function BillingManager({
                           action={regenerateInvoicePdfAction}
                         >
                           {() => <input type="hidden" name="invoiceId" value={item.id} />}
+                        </ActionModal>
+                      ) : null}
+                      {!item.providerDocumentId && !item.folio && !isSiiRejectedStatus(item.siiStatus) ? (
+                        <ActionModal
+                          iconOnly
+                          triggerLabel="Reintentar emisión DTE"
+                          triggerIcon={<RefreshCw size={17} />}
+                          title="Reintentar emisión DTE"
+                          description="Se reutilizará la misma clave idempotente. El sistema no reintentará si detecta folio o documento previo."
+                          submitLabel="Reintentar emisión"
+                          pendingLabel="Reintentando…"
+                          action={issueInvoiceAction}
+                        >
+                          {() => <input type="hidden" name="orderId" value={item.orderId} />}
                         </ActionModal>
                       ) : null}
                       {item.status === "issued" && item.hasPdf ? (

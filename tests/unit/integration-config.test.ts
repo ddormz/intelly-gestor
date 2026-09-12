@@ -31,6 +31,7 @@ describe("encrypted integration configuration", () => {
   it("keeps the RUT lookup credential server-only in public configuration", () => {
     const env = parseAppEnv({ DATABASE_URL: "mysql://user:pass@localhost:3306/app", INTELLYDTE_MODE: "http", INTELLYDTE_API_KEY: "secret" });
     expect(env.INTELLYDTE_API_KEY).toBe("secret");
+    expect(env.INTELLYDTE_EMISSION_MODE).toBe("fast-ack");
     process.env.DATABASE_URL = "mysql://user:pass@localhost:3306/app";
     expect(publicConfig()).not.toHaveProperty("apiKey");
   });

@@ -8,7 +8,7 @@ const query = { page: 1, pageSize: 20 };
 
 function renderInvoice(status: "pending" | "processing" | "issued" | "rejected", hasPdf = false, hasXml = false, siiStatus: string | null | undefined = status === "issued" ? "DOK" : null, siiGlosa: string | null = null) {
   return renderToStaticMarkup(createElement(BillingManager, {
-    items: [{ id: "invoice-1", orderNumber: "OP-1", clientName: "Cliente", clientEmail: "cliente@example.test", total: "1190", status, folio: "22", siiStatus, siiGlosa, hasPdf, hasXml }],
+    items: [{ id: "invoice-1", orderId: "order-1", orderNumber: "OP-1", clientName: "Cliente", clientEmail: "cliente@example.test", total: "1190", status, providerDocumentId: "dte-1", folio: "22", siiStatus: status === "rejected" && siiStatus === null ? "RPR" : siiStatus, siiGlosa, lastErrorCode: null, lastErrorMessage: null, hasPdf, hasXml }],
     ready: [],
     canImport: false,
     query,
@@ -63,6 +63,18 @@ describe("billing fiscal evidence UI", () => {
     expect(renderInvoice("pending")).toContain("lucide-arrow-right");
     expect(renderInvoice("processing")).toContain("lucide-clock-3");
     expect(renderInvoice("rejected")).toContain("lucide-circle-x");
+  });
+
+  it("shows a legacy pre-folio provider failure as retryable pending emission, not as SII rejection", () => {
+    const html = renderToStaticMarkup(createElement(BillingManager, {
+      items: [{ id: "invoice-1", orderId: "order-1", orderNumber: "OP-1", clientName: "Cliente", clientEmail: "cliente@example.test", total: "1190", status: "rejected", providerDocumentId: null, folio: null, siiStatus: null, siiGlosa: null, lastErrorCode: "ASYNC_SII_UPLOAD_DISABLED", lastErrorMessage: "La emisión asíncrona está deshabilitada.", hasPdf: false, hasXml: false }],
+      ready: [], canImport: false, query, page: 1, pageSize: 20, total: 1, folios: [],
+    }));
+
+    expect(html).toContain('aria-label="Emisión pendiente"');
+    expect(html).toContain("Reintentar emisión DTE");
+    expect(html).not.toContain("Rechazado por el SII");
+    expect(html).not.toContain("lucide-circle-x");
   });
 
   it("defers folio cards behind a loading skeleton", () => {

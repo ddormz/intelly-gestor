@@ -21,7 +21,8 @@ export async function issueInvoiceAction(_: ActionState, formData: FormData): Pr
     const user = await requireUser();
     const result = await issueInvoice(String(formData.get("orderId")), user.userId);
     revalidatePath("/facturacion"); revalidatePath("/ordenes"); revalidatePath("/");
-    return { status: "success", message: result.kind === "issued" ? isSiiAcceptedStatus(result.siiStatus) ? "Factura aceptada por el SII." : "Factura emitida; esperando confirmación del SII." : "Solicitud de facturación registrada." };
+    if (result.kind === "rejected" || result.kind === "failed" || result.kind === "unavailable") return { status: "error", message: result.safeMessage };
+    return { status: "success", message: result.kind === "issued" ? isSiiAcceptedStatus(result.siiStatus) ? "Factura aceptada por el SII." : "Factura emitida; esperando confirmación del SII." : result.safeMessage ?? "Solicitud de facturación registrada; emisión pendiente." };
   } catch (error) {
     if (error instanceof AppError) return { status: "error", message: error.message };
     return { status: "error", message: safeError(error).message };
@@ -47,7 +48,8 @@ export async function refreshInvoiceStatusAction(_: ActionState, formData: FormD
     const user = await requireUser();
     const result = await refreshInvoiceStatus(String(formData.get("invoiceId")), user.userId);
     revalidatePath("/facturacion");
-    return { status: "success", message: result.kind === "issued" ? isSiiAcceptedStatus(result.siiStatus) ? "Estado conciliado: factura aceptada por el SII." : "Documento emitido; esperando confirmación del SII." : "Estado consultado; la factura sigue pendiente." };
+    if (result.kind === "rejected" || result.kind === "failed" || result.kind === "unavailable") return { status: "error", message: result.safeMessage };
+    return { status: "success", message: result.kind === "issued" ? isSiiAcceptedStatus(result.siiStatus) ? "Estado conciliado: factura aceptada por el SII." : "Documento emitido; esperando confirmación del SII." : result.safeMessage ?? "Estado consultado; la factura sigue pendiente." };
   } catch (error) {
     return { status: "error", message: safeError(error).message };
   }

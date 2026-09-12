@@ -5,6 +5,7 @@ import { getIntellyDteConfig, normalizeIntellyDteBaseUrl, normalizeIntellyDteTen
 import {
   providerData,
   providerError,
+  providerHttpStatus,
   type FolioStatusItem,
   type IntellyDteFacturaPayload,
   type NormalizedProviderData,
@@ -12,7 +13,7 @@ import {
   type RequestFoliosCommand,
   type RequestFoliosResult,
 } from "./intellydte-contract";
-import { isSiiAcceptedStatus } from "./sii-status";
+import { isSiiAcceptedStatus, isSiiRejectedStatus } from "./sii-status";
 
 export type IssueInvoiceCommand = {
   idempotencyKey: string;
@@ -20,11 +21,17 @@ export type IssueInvoiceCommand = {
   orderNumber: string;
   total: string;
   recipientTaxId: string;
+  emissionMode?: "sync" | "async" | "fast-ack";
   payload?: IntellyDteFacturaPayload;
 };
 
 type IssuedInvoiceResult = { kind: "issued"; providerDocumentId: string; folio: string; tipoDte?: string; issuedAt: string; trackId?: string | null; siiStatus?: string | null; siiGlosa?: string | null; signedXmlBase64?: string; printPayload?: NormalizedProviderData["printPayload"]; providerBody?: ProviderBody };
-export type InvoiceResult = IssuedInvoiceResult | { kind: "rejected"; code: string; safeMessage: string; retryable: false; providerDocumentId?: string; folio?: string; trackId?: string | null; siiStatus?: string | null; siiGlosa?: string | null; providerCode?: string; providerBody?: ProviderBody } | { kind: "pending"; providerDocumentId?: string; folio?: string; trackId?: string | null; siiStatus?: string | null; siiGlosa?: string | null; providerCode?: string; providerBody?: ProviderBody; retryAfterSeconds?: number } | { kind: "unavailable"; code: string; safeMessage: string; retryable: true; providerDocumentId?: string; folio?: string; trackId?: string | null; siiStatus?: string | null; siiGlosa?: string | null; providerCode?: string; providerBody?: ProviderBody };
+type NonIssuedContext = { providerDocumentId?: string; folio?: string; trackId?: string | null; siiStatus?: string | null; siiGlosa?: string | null; providerCode?: string; providerBody?: ProviderBody; statusCode?: number };
+export type InvoiceResult = IssuedInvoiceResult
+  | ({ kind: "rejected"; code: string; safeMessage: string; retryable: false } & NonIssuedContext)
+  | ({ kind: "failed"; code: string; safeMessage: string; retryable: boolean } & NonIssuedContext)
+  | ({ kind: "pending"; code?: string; safeMessage?: string; retryable?: true; retryAfterSeconds?: number } & NonIssuedContext)
+  | ({ kind: "unavailable"; code: string; safeMessage: string; retryable: true } & NonIssuedContext);
 export type InvoiceStatusResult = InvoiceResult;
 
 export type RutLookupResult = { rut: string; razonSocial: string | null; autorizado: boolean | null };
@@ -50,7 +57,7 @@ function serviceRoot(value: string): string {
 }
 
 function providerStatusRejected(status: string | null | undefined): boolean {
-  return Boolean(status && /^(?:RPR|DNK|FAN|RCT)$|REJECT|RECHAZ|FAILED|ERROR|INVALID/i.test(status.trim().toUpperCase()));
+  return isSiiRejectedStatus(status);
 }
 
 function providerStatusReview(status: string | null | undefined): boolean {
@@ -63,7 +70,7 @@ function providerStatusAccepted(status: string | null | undefined): boolean {
 
 function dataResult(data: NormalizedProviderData, fallbackId?: string, requireEvidence = true, body?: ProviderBody): InvoiceResult {
   const providerDocumentId = data.dteRecordId ?? fallbackId;
-  if (providerStatusRejected(data.siiStatus)) return { kind: "rejected", code: "SII_REJECTED", safeMessage: data.siiGlosa || "El SII rechazó el documento.", retryable: false, providerDocumentId, providerBody: body };
+  if (providerStatusRejected(data.siiStatus)) return { kind: "rejected", code: "SII_REJECTED", safeMessage: data.siiGlosa || "El SII rechazó el documento.", retryable: false, providerDocumentId, folio: data.folio, trackId: data.trackId, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, providerBody: body };
   if (providerStatusReview(data.siiStatus)) return { kind: "pending", providerDocumentId, folio: data.folio, trackId: data.trackId, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, providerCode: "SII_REVIEW_REQUIRED", providerBody: body };
   if (providerDocumentId && data.folio && (!requireEvidence || data.printPayload?.signedXmlBase64)) {
     if (!requireEvidence && !providerStatusAccepted(data.siiStatus)) return { kind: "pending", providerDocumentId, folio: data.folio, trackId: data.trackId, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, providerCode: "SII_STATUS_UNRESOLVED", providerBody: body };
@@ -92,7 +99,7 @@ export class IntellyDteHttpGateway implements IntellyDteGateway {
     this.systemApiKey = config.systemApiKey ?? null;
     this.tenantRut = config.tenantRut ? normalizeIntellyDteTenantRut(config.tenantRut) : null;
     this.timeoutMs = config.timeoutMs ?? 10_000;
-    this.emissionMode = config.emissionMode ?? "async";
+    this.emissionMode = config.emissionMode ?? "fast-ack";
   }
 
   private async request(path: string, init: RequestInit, providerRoot = false): Promise<{ response: Response; body: ProviderBody | null } | { error: InvoiceResult }> {
@@ -105,7 +112,7 @@ export class IntellyDteHttpGateway implements IntellyDteGateway {
         return response.ok ? { error: { kind: "unavailable", code: "INTELLYDTE_INVALID_RESPONSE", safeMessage: "IntellyDTE entregó una respuesta inválida.", retryable: true } } : { response, body: null };
       }
     } catch {
-      return { error: { kind: "pending", retryAfterSeconds: 30 } };
+      return { error: { kind: "pending", code: "INTELLYDTE_NETWORK_ERROR", safeMessage: "No fue posible confirmar la emisión con IntellyDTE.", retryable: true, retryAfterSeconds: 30 } };
     }
   }
 
@@ -118,22 +125,25 @@ export class IntellyDteHttpGateway implements IntellyDteGateway {
   }
 
   async issueInvoice(command: IssueInvoiceCommand): Promise<InvoiceResult> {
-    const result = await this.request("/dte/factura", { method: "POST", headers: { "x-api-key": this.tenantApiKey, ...(this.tenantRut ? { "x-tenant-rut": this.tenantRut } : {}), "Idempotency-Key": command.idempotencyKey, "x-intelly-emission-mode": this.emissionMode, "x-intelly-external-sale-id": command.orderNumber, "x-correlation-id": command.correlationId, "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(payloadForCommand(command)) });
+    const result = await this.request("/dte/factura", { method: "POST", headers: { "x-api-key": this.tenantApiKey, ...(this.tenantRut ? { "x-tenant-rut": this.tenantRut } : {}), "Idempotency-Key": command.idempotencyKey, "x-intelly-emission-mode": command.emissionMode ?? this.emissionMode, "x-intelly-external-sale-id": command.orderNumber, "x-correlation-id": command.correlationId, "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(payloadForCommand(command)) });
     if ("error" in result) return result.error;
-    if (result.response.status >= 500) {
+    const status = providerHttpStatus(result.body, result.response.status);
+    if (status >= 500) {
       const data = providerData(result.body);
-      return { kind: "pending", providerDocumentId: data.dteRecordId, folio: data.folio, trackId: data.trackId, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, providerCode: "HTTP_5XX_UNCERTAIN", providerBody: result.body ?? undefined, retryAfterSeconds: 30 };
+      const error = providerError(result.body, `HTTP_${status}`, "IntellyDTE no pudo confirmar la emisión.");
+      return { kind: "pending", code: error.code, safeMessage: error.message, retryable: true, statusCode: status, providerDocumentId: data.dteRecordId, folio: data.folio, trackId: data.trackId, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, providerCode: error.code, providerBody: result.body ?? undefined, retryAfterSeconds: 30 };
     }
-    if (result.response.status === 401 || result.response.status === 403) return { kind: "rejected", code: "INTELLYDTE_UNAUTHORIZED", safeMessage: "IntellyDTE rechazó la credencial.", retryable: false };
-    if (result.response.status === 409) {
+    if (status === 401 || status === 403) return { kind: "failed", code: "INTELLYDTE_UNAUTHORIZED", safeMessage: "IntellyDTE rechazó la credencial.", retryable: false, statusCode: status };
+    if (status === 409) {
       const data = providerData(result.body);
       const error = providerError(result.body, "INTELLYDTE_CONFLICT", "IntellyDTE rechazó la operación duplicada.");
-      if (/IDEMPOTENCY.*(PROGRESS|PENDING)|IN_PROGRESS|PROCESSING/i.test(error.code)) return { kind: "pending", providerDocumentId: data.dteRecordId, folio: data.folio, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, providerCode: error.code, providerBody: result.body ?? undefined, retryAfterSeconds: 30 };
-      return data.dteRecordId ? dataResult(data, undefined, true, result.body ?? undefined) : { kind: "rejected", code: error.code, safeMessage: error.message, retryable: false, providerBody: result.body ?? undefined };
+      if (/IDEMPOTENCY.*(PROGRESS|PENDING)|IN_PROGRESS|PROCESSING/i.test(error.code)) return { kind: "pending", code: error.code, safeMessage: error.message, retryable: true, statusCode: status, providerDocumentId: data.dteRecordId, folio: data.folio, siiStatus: data.siiStatus, siiGlosa: data.siiGlosa, providerCode: error.code, providerBody: result.body ?? undefined, retryAfterSeconds: 30 };
+      return data.dteRecordId ? dataResult(data, undefined, true, result.body ?? undefined) : { kind: "failed", code: error.code, safeMessage: error.message, retryable: false, statusCode: status, providerBody: result.body ?? undefined };
     }
-    if (result.response.status >= 400) {
+    if (status >= 400) {
       const error = providerError(result.body, "INVALID_INVOICE", "IntellyDTE rechazó la factura.");
-      return { kind: "rejected", code: error.code, safeMessage: error.message, retryable: false, providerBody: result.body ?? undefined };
+      const retryable = status === 408 || status === 425 || status === 429;
+      return { kind: "failed", code: error.code, safeMessage: error.message, retryable, statusCode: status, providerBody: result.body ?? undefined };
     }
     return dataResult(providerData(result.body), undefined, true, result.body ?? undefined);
   }
