@@ -78,7 +78,13 @@ function fiscalUnitPrice(value: string): number {
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > Number.MAX_SAFE_INTEGER) {
     throw new AppError("FISCAL_UNIT_PRICE_INVALID", "El precio fiscal no es seguro.", 400);
   }
+  if (decimalPlaces(parsed) > 6) throw new AppError("FISCAL_UNIT_PRICE_PRECISION", "El precio unitario permite máximo 6 decimales.", 400);
   return parsed;
+}
+
+function decimalPlaces(value: number): number {
+  const [, fraction = "", exponentText = "0"] = value.toString().match(/^[+-]?\d+(?:\.(\d*))?(?:e([+-]?\d+))?$/i) ?? [];
+  return Math.max(0, fraction.length - Number(exponentText));
 }
 
 export function assertDte33Preflight(input: { client: FiscalClientSnapshot; order: FiscalOrderSnapshot; lines: FiscalLineSnapshot[]; issuerRut?: string | null }): void {
@@ -91,6 +97,8 @@ export function assertDte33Preflight(input: { client: FiscalClientSnapshot; orde
     const unitPrice = fiscalUnitPrice(line.unitPrice);
     const quantity = Number(line.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0) throw new AppError("FISCAL_QUANTITY_INVALID", "La cantidad fiscal debe ser positiva.", 400);
+    if (Math.abs(quantity) > Number.MAX_SAFE_INTEGER) throw new AppError("FISCAL_QUANTITY_INVALID", "La cantidad fiscal excede el rango numérico seguro.", 400);
+    if (decimalPlaces(quantity) > 6) throw new AppError("FISCAL_QUANTITY_PRECISION", "La cantidad permite máximo 6 decimales.", 400);
     const originalSubtotal = Math.round(unitPrice * quantity);
     if (originalSubtotal !== fiscalMoney(line.subtotal, "SUBTOTAL")) throw new AppError("FISCAL_LINE_SUBTOTAL_MISMATCH", "El subtotal fiscal no coincide con precio y cantidad.", 400);
     const discount = fiscalMoney(line.discountAmount, "DISCOUNT");

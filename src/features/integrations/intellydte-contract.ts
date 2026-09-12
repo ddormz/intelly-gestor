@@ -103,9 +103,17 @@ export function providerError(payload: unknown, fallbackCode: string, fallbackMe
   const root = providerEnvelope(payload);
   const data = root.error && typeof root.error === "object" ? root.error as ProviderBody : root.data && typeof root.data === "object" ? root.data as ProviderBody : root;
   const scalarError = stringValue(root.error);
+  const violation = Array.isArray(root.violations)
+    ? root.violations.find((value): value is ProviderBody => Boolean(value) && typeof value === "object")
+    : undefined;
+  const violationField = stringValue(violation?.field);
+  const violationMessage = stringValue(violation?.message);
+  const schemaMessage = violationMessage
+    ? `IntellyDTE rechazó ${violationField ? `el campo ${violationField}` : "los datos de la factura"}: ${violationMessage}`
+    : undefined;
   return {
     code: stringValue(data.code ?? data.errorCode ?? root.code) ?? scalarError ?? fallbackCode,
-    message: stringValue(data.message ?? (typeof data.error === "string" ? data.error : undefined) ?? root.message) ?? fallbackMessage,
+    message: stringValue(data.message ?? (typeof data.error === "string" && data.error !== scalarError ? data.error : undefined) ?? root.message) ?? schemaMessage ?? fallbackMessage,
   };
 }
 

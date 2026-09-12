@@ -77,6 +77,25 @@ describe("typed IntellyDTE gateway", () => {
     expect((await gateway.issueInvoice(command)).kind).toBe("unavailable");
   });
 
+  it("surfaces the field and message from a DTE schema violation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      error: "DTE_SCHEMA_VALIDATION_FAILED",
+      can_retry: false,
+      violations: [{ code: "SCHEMA_VALIDATION_FAILED", field: "items.0.cantidad", message: "Cantidad permite máximo 6 decimales" }],
+    }, 422)));
+    const gateway = new IntellyDteHttpGateway({ baseUrl: "https://dte.example", tenantApiKey: "ik_tenant", tenantRut: "76123456-7", timeoutMs: 1000 });
+
+    const result = await gateway.issueInvoice({ idempotencyKey: "invoice:invalid", correlationId: "corr-invalid", orderNumber: "OP-INVALID", total: "112", recipientTaxId: "76123456-7", payload: { receptor: { rut: "76123456-7", razonSocial: "Cliente" }, items: [], montoTotal: 112 } });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      code: "DTE_SCHEMA_VALIDATION_FAILED",
+      safeMessage: "IntellyDTE rechazó el campo items.0.cantidad: Cantidad permite máximo 6 decimales",
+      retryable: false,
+      statusCode: 422,
+    });
+  });
+
   it("uses the provider status route without creating a second invoice", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ success: true, data: { dteRecordId: "dte-1", folio: 42, trackId: "track-1", siiStatus: "ACEPTADO", siiGlosa: "OK" } }));
     vi.stubGlobal("fetch", fetchMock);

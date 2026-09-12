@@ -30,6 +30,13 @@ describe("fiscal emission orchestration contracts", () => {
     expect(parseSignedDteXmlBytes(bytes).receiver.name).toBe("NIÑO SPA");
   });
 
+  it("rejects numeric precision that IntellyDTE cannot represent", () => {
+    const base = { client: { taxId: "12345678-5", legalName: "CLIENTE SPA", giro: "Comercio", addressLine: "Destino 456", commune: "Providencia", city: "Santiago" }, order: { total: "119", taxTotal: "19", discountTotal: "0", notes: null } };
+
+    expect(() => buildFacturaPayload({ ...base, lines: [{ description: "Servicio", quantity: "1.0000001", subtotal: "100", discountAmount: "0", taxRate: "19", taxAmount: "19", total: "119", unitPrice: "100" }] })).toThrow("La cantidad permite máximo 6 decimales");
+    expect(() => buildFacturaPayload({ ...base, lines: [{ description: "Servicio", quantity: "1", subtotal: "100", discountAmount: "0", taxRate: "19", taxAmount: "19", total: "119", unitPrice: "100.0000001" }] })).toThrow("El precio unitario permite máximo 6 decimales");
+  });
+
   it("prefers the actual UTF-8 bytes when the provider keeps an ISO declaration", () => {
     const source = `<?xml version="1.0" encoding="ISO-8859-1"?><DTE><GiroEmis>PRESTACIÓN DE SERVICIOS INFORMÁTICOS Y MATERIAS AFINES</GiroEmis><RznSocRecep>NIÑO SPA</RznSocRecep></DTE>`;
     const utf8Bytes = new Uint8Array(Buffer.from(source, "utf8"));
