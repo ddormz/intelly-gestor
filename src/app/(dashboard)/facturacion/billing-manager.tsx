@@ -35,6 +35,7 @@ import {
 import {
   importHistoricalInvoicesAction,
   issueInvoiceAction,
+  reconcilePendingInvoicesAction,
   regenerateInvoicePdfAction,
   refreshInvoiceStatusAction,
   requestFoliosAction,
@@ -114,6 +115,41 @@ function DirectSyncFoliosButton({ onResult }: { onResult: (res: { ok: boolean; m
     >
       <RefreshCw size={14} className={pending ? "animate-spin text-[var(--brand-royal)]" : ""} />
       {pending ? "Sincronizando…" : "Sincronizar folios"}
+    </button>
+  );
+}
+
+function ReconcilePendingButton({ onResult }: { onResult: (res: { ok: boolean; message: string }) => void }) {
+  const [pending, setPending] = useState(false);
+
+  async function handleReconcile() {
+    setPending(true);
+    try {
+      const res = await reconcilePendingInvoicesAction({ status: "idle" }, new FormData());
+      onResult({
+        ok: res.status === "success",
+        message: res.message || "Conciliación completada.",
+      });
+    } catch (error) {
+      onResult({
+        ok: false,
+        message: error instanceof Error ? error.message : "Error al conciliar facturas.",
+      });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleReconcile}
+      disabled={pending}
+      className="btn-secondary !h-9 !px-3.5 inline-flex items-center gap-1.5 text-xs font-semibold hover:border-[var(--brand-royal)]"
+      title="Consulta en IntellyDTE el estado de las facturas pendientes y envía las aceptadas por correo"
+    >
+      <FileCheck size={14} className={pending ? "animate-spin text-[var(--brand-royal)]" : ""} />
+      {pending ? "Conciliando…" : "Conciliar pendientes"}
     </button>
   );
 }
@@ -310,6 +346,7 @@ export function BillingManager({
   const actions = (
     <>
       <DirectSyncFoliosButton onResult={(res) => { setFeedback(res); if (res.ok) setFolioRefreshKey((value) => value + 1); }} />
+      <ReconcilePendingButton onResult={(res) => { setFeedback(res); }} />
       <ActionModal
         triggerLabel="Solicitar folios al SII"
         triggerIcon={<PlusCircle size={18} />}

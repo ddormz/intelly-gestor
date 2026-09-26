@@ -466,6 +466,8 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
     } catch (error) {
       console.error(JSON.stringify({ scope: "invoice-auto-email", event: "webhook-failed", invoiceId: invoice.id, error: error instanceof Error ? error.message : "unknown" }));
     }
+  } else {
+    console.log(JSON.stringify({ scope: "intellydte-webhook", event: "processed", eventId, invoiceId: invoice.id, status: webhookNextStatus }));
   }
   return { accepted: true, duplicate: false, eventId, status: "processed" };
 }

@@ -13,7 +13,7 @@ import { readCsvFile } from "@/lib/csv";
 import type { ActionState } from "@/lib/action-state";
 import { parseHistoricalInvoicesCsv } from "./csv";
 import { issueInvoice, refreshInvoiceStatus, regenerateInvoicePdf } from "./emission";
-import { importHistoricalInvoices, sendInvoiceEmail, sendInvoiceIssuedEmailIfNeeded, sendOrderInvoiceEmailIfNeeded } from "./service";
+import { importHistoricalInvoices, listReconciliableInvoices, sendInvoiceEmail, sendInvoiceIssuedEmailIfNeeded, sendOrderInvoiceEmailIfNeeded } from "./service";
 
 export async function issueInvoiceAction(_: ActionState, formData: FormData): Promise<ActionState> {
   try {
@@ -70,6 +70,46 @@ export async function refreshInvoiceStatusAction(_: ActionState, formData: FormD
       revalidatePath("/facturacion");
     }
     return { status: "success", message: result.kind === "issued" ? isSiiAcceptedStatus(result.siiStatus) ? "Estado conciliado: factura aceptada por el SII." : "Documento emitido; esperando confirmación del SII." : result.safeMessage ?? "Estado consultado; la factura sigue pendiente." };
+  } catch (error) {
+    return { status: "error", message: safeError(error).message };
+  }
+}
+
+export async function reconcilePendingInvoicesAction(_: ActionState, _formData: FormData): Promise<ActionState> {
+  try {
+    await enforceSameOrigin();
+    const user = await requireUser();
+    const pending = await listReconciliableInvoices();
+    if (!pending.length) return { status: "success", message: "No hay facturas pendientes de conciliar con el SII." };
+    let accepted = 0;
+    let emailed = 0;
+    let stillPending = 0;
+    let failed = 0;
+    for (const item of pending) {
+      try {
+        const result = await refreshInvoiceStatus(item.id, user.userId);
+        if (result.kind === "issued" && isSiiAcceptedStatus(result.siiStatus)) {
+          accepted++;
+          try {
+            const outcome = await sendInvoiceIssuedEmailIfNeeded(item.id, user.userId);
+            if (outcome.sent) emailed++;
+          } catch {
+            // ignore: auditado dentro del helper
+          }
+        } else if (result.kind === "pending") {
+          stillPending++;
+        } else {
+          failed++;
+        }
+      } catch {
+        failed++;
+      }
+    }
+    revalidatePath("/facturacion");
+    return {
+      status: "success",
+      message: `Conciliadas ${pending.length}: ${accepted} aceptadas por el SII (${emailed} correos enviados), ${stillPending} aún pendientes, ${failed} con error.`,
+    };
   } catch (error) {
     return { status: "error", message: safeError(error).message };
   }

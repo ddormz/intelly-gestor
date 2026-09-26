@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, count, desc, eq, gte, like, lte, or, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNotNull, like, lte, or, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditEvents, clients, invoices, orderEmailDeliveries, paymentOrders, users } from "@/db/schema";
 import { buildAuditEvent, writeAudit } from "@/features/audit/service";
@@ -230,6 +230,17 @@ export async function sendInvoiceIssuedEmailIfNeeded(invoiceId: string, actorUse
     }).catch(() => undefined);
     return { sent: false, invoiceId, reason: "send-failed" };
   }
+}
+
+/** Facturas no terminales con identificador de proveedor: candidatas a conciliación. */
+export async function listReconciliableInvoices(limit = 25): Promise<Array<{ id: string; folio: string | null }>> {
+  return getDb()
+    .select({ id: invoices.id, folio: invoices.folio })
+    .from(invoices)
+    .where(and(inArray(invoices.status, ["pending", "processing"]), isNotNull(invoices.providerDocumentId)))
+    .orderBy(desc(invoices.createdAt), desc(invoices.id))
+    .limit(limit)
+    .execute();
 }
 
 /** Variante por orden: opera sobre la última factura de la orden de pago. */
