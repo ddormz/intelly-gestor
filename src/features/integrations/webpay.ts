@@ -12,6 +12,23 @@ const WEBPAY_PRODUCTION_URL = "https://webpay3g.transbank.cl/rswebpaytransaction
 const DEFAULT_TEST_COMMERCE_CODE = "597055555532";
 const DEFAULT_TEST_API_KEY = "579B532A7440BBAB61B82D4E290C4472";
 
+const WEBPAY_TIMEOUT_MS = 15000;
+
+function maskCommerce(code: string): string {
+  if (code.length <= 8) return `${code.slice(0, 2)}•••${code.slice(-2)}`;
+  return `${code.slice(0, 4)}•••${code.slice(-4)}`;
+}
+
+function maskToken(token: string): string {
+  if (!token) return "empty";
+  if (token.length <= 10) return `len=${token.length} last4=${token.slice(-4)}`;
+  return `len=${token.length} last6=${token.slice(-6)}`;
+}
+
+function webpayLog(scope: "webpay-create" | "webpay-commit" | "webpay-test", event: string, data: Record<string, unknown>) {
+  console.log(JSON.stringify({ scope, event, ...data }));
+}
+
 export type WebpayConfig = {
   commerceCode: string;
   apiKey: string;
@@ -156,51 +173,116 @@ export async function createWebpayTransaction(input: {
   amount: number;
   returnUrl: string;
 }): Promise<WebpayCreateResult> {
+  const t0 = Date.now();
   const config = await getWebpayConfig();
   const endpoint = config.isProduction ? WEBPAY_PRODUCTION_URL : WEBPAY_INTEGRATION_URL;
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Tbk-Api-Key-Id": config.commerceCode,
-      "Tbk-Api-Key-Secret": config.apiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      buy_order: input.buyOrder,
-      session_id: input.sessionId,
-      amount: Math.round(input.amount),
-      return_url: input.returnUrl,
-    }),
+  let returnOrigin = "";
+  let returnHasToken = false;
+  try {
+    const parsed = new URL(input.returnUrl);
+    returnOrigin = parsed.origin;
+    returnHasToken = parsed.searchParams.has("token");
+  } catch {
+    returnOrigin = "unparseable";
+  }
+  const roundedAmount = Math.round(input.amount);
+  webpayLog("webpay-create", "start", {
+    buyOrder: input.buyOrder,
+    amount: roundedAmount,
+    returnOrigin,
+    returnHasToken,
+    isProduction: config.isProduction,
+    endpointHost: new URL(endpoint).host,
+    commerce: maskCommerce(config.commerceCode),
+    configured: config.configured,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new AppError("WEBPAY_CREATION_FAILED", `Error de Transbank WebPay: ${response.status} - ${errorText}`);
-  }
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Tbk-Api-Key-Id": config.commerceCode,
+        "Tbk-Api-Key-Secret": config.apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        buy_order: input.buyOrder,
+        session_id: input.sessionId,
+        amount: roundedAmount,
+        return_url: input.returnUrl,
+      }),
+      signal: AbortSignal.timeout(WEBPAY_TIMEOUT_MS),
+    });
 
-  const data = (await response.json()) as { token: string; url: string };
-  return {
-    token: data.token,
-    url: data.url,
-  };
+    if (!response.ok) {
+      const errorText = await response.text();
+      webpayLog("webpay-create", "http-error", {
+        buyOrder: input.buyOrder,
+        httpStatus: response.status,
+        bodyTruncated: errorText.slice(0, 500),
+        elapsedMs: Date.now() - t0,
+      });
+      throw new AppError("WEBPAY_CREATION_FAILED", `Error de Transbank WebPay: ${response.status} - ${errorText}`);
+    }
+
+    const data = (await response.json()) as { token: string; url: string };
+    webpayLog("webpay-create", "ok", {
+      buyOrder: input.buyOrder,
+      token: maskToken(data.token),
+      urlHost: (() => { try { return new URL(data.url).host; } catch { return "unparseable"; } })(),
+      elapsedMs: Date.now() - t0,
+    });
+    return {
+      token: data.token,
+      url: data.url,
+    };
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      webpayLog("webpay-create", "timeout", { buyOrder: input.buyOrder, timeoutMs: WEBPAY_TIMEOUT_MS, elapsedMs: Date.now() - t0 });
+      throw new AppError("WEBPAY_TIMEOUT", `Transbank no respondió en ${WEBPAY_TIMEOUT_MS / 1000}s al crear la transacción.`);
+    }
+    throw error;
+  }
 }
 
 export async function commitWebpayTransaction(token: string): Promise<WebpayCommitResult> {
+  const t0 = Date.now();
   const config = await getWebpayConfig();
   const endpoint = `${config.isProduction ? WEBPAY_PRODUCTION_URL : WEBPAY_INTEGRATION_URL}/${token}`;
-
-  const response = await fetch(endpoint, {
-    method: "PUT",
-    headers: {
-      "Tbk-Api-Key-Id": config.commerceCode,
-      "Tbk-Api-Key-Secret": config.apiKey,
-      "Content-Type": "application/json",
-    },
+  webpayLog("webpay-commit", "start", {
+    token: maskToken(token),
+    isProduction: config.isProduction,
+    endpointHost: config.isProduction ? new URL(WEBPAY_PRODUCTION_URL).host : new URL(WEBPAY_INTEGRATION_URL).host,
+    commerce: maskCommerce(config.commerceCode),
   });
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "PUT",
+      headers: {
+        "Tbk-Api-Key-Id": config.commerceCode,
+        "Tbk-Api-Key-Secret": config.apiKey,
+        "Content-Type": "application/json",
+      },
+      signal: AbortSignal.timeout(WEBPAY_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      webpayLog("webpay-commit", "timeout", { token: maskToken(token), timeoutMs: WEBPAY_TIMEOUT_MS, elapsedMs: Date.now() - t0 });
+      throw new AppError("WEBPAY_TIMEOUT", `Transbank no respondió en ${WEBPAY_TIMEOUT_MS / 1000}s al confirmar la transacción.`);
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
+    webpayLog("webpay-commit", "http-error", {
+      token: maskToken(token),
+      httpStatus: response.status,
+      bodyTruncated: errorText.slice(0, 500),
+      elapsedMs: Date.now() - t0,
+    });
     throw new AppError("WEBPAY_COMMIT_FAILED", `Error al confirmar transacción WebPay: ${response.status} - ${errorText}`);
   }
 
@@ -220,6 +302,15 @@ export async function commitWebpayTransaction(token: string): Promise<WebpayComm
     installments_number?: number;
     balance?: number;
   };
+
+  webpayLog("webpay-commit", "ok", {
+    token: maskToken(token),
+    responseCode: data.response_code,
+    status: data.status,
+    amount: data.amount,
+    buyOrder: data.buy_order,
+    elapsedMs: Date.now() - t0,
+  });
 
   return {
     vci: data.vci,
@@ -257,6 +348,7 @@ export async function testWebpayConnection(): Promise<{ ok: boolean; safeMessage
         amount: 1000,
         return_url: "https://gestion.intelly.cl/api/webpay/return",
       }),
+      signal: AbortSignal.timeout(WEBPAY_TIMEOUT_MS),
     });
 
     if (response.ok) {
