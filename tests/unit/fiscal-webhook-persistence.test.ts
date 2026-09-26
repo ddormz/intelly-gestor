@@ -7,6 +7,7 @@ vi.mock("@/db", () => ({ getDb: vi.fn() }));
 vi.mock("@/features/integrations/config-service", () => ({ getIntellyDteWebhookSecret: vi.fn(async () => "webhook-secret"), getIntellyDteConfig: vi.fn() }));
 vi.mock("@/features/audit/service", () => ({ buildAuditEvent: vi.fn(() => ({ id: "audit", correlationId: "corr", metadata: {} })) }));
 vi.mock("@/features/billing/service", () => ({ sendInvoiceIssuedEmailIfNeeded: vi.fn(async () => ({ sent: false })) }));
+vi.mock("@/features/integrations/intellydte", () => ({ getIntellyDteGateway: vi.fn(async () => { throw new Error("gateway-unavailable"); }) }));
 
 function chain<T>(result: T) {
   const value = { from: vi.fn(() => value), where: vi.fn(() => value), limit: vi.fn(() => value), execute: vi.fn(async () => result) };
@@ -99,6 +100,47 @@ describe("fiscal webhook persistence", () => {
     const result = await handleIntellyDteWebhook(body, signature);
 
     expect(result.status).toBe("acknowledged_without_target");
+    expect(invoiceUpdates).toHaveLength(0);
+  });
+
+  it("ignores a stale enqueued event on an already accepted invoice", async () => {
+    const invoice = {
+      id: "invoice-1",
+      paymentOrderId: "order-1",
+      status: "issued",
+      providerDocumentId: "dte-1",
+      tenantRut: "76123456-7",
+      folio: "22",
+      trackId: "track-1",
+      siiStatus: "DOK",
+      siiGlosa: "Aceptado",
+      signedXmlEvidenceId: "xml-1",
+      reconstructedPdfEvidenceId: "pdf-1",
+      evidenceStatus: "complete",
+      evidenceError: null,
+      rejectedAt: null,
+      issuedAt: new Date(),
+      lastErrorCode: null,
+      lastErrorMessage: null,
+    };
+    const selects = [chain([]), chain([invoice]), chain([invoice])];
+    const invoiceUpdates: Array<Record<string, unknown>> = [];
+    const db = {
+      select: vi.fn(() => selects.shift() ?? chain([])),
+      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      update: vi.fn(() => ({ set: vi.fn((value: Record<string, unknown>) => {
+        if (value.status) invoiceUpdates.push(value);
+        return { where: vi.fn(async () => undefined) };
+      }) })),
+      transaction: vi.fn(async (callback: (tx: typeof db) => unknown) => callback(db)),
+    };
+    vi.mocked(getDb).mockReturnValue(db as never);
+    const body = JSON.stringify({ id: "evt-stale-1", type: "dte.enqueued", data: { dteRecordId: "dte-1", siiStatus: "ENQUEUED", queueStatus: "PENDING" } });
+    const signature = `sha256=${createHmac("sha256", "webhook-secret").update(body).digest("hex")}`;
+
+    const result = await handleIntellyDteWebhook(body, signature);
+
+    expect(result.status).toBe("processed");
     expect(invoiceUpdates).toHaveLength(0);
   });
 

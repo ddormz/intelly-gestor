@@ -5,7 +5,7 @@ import { auditEvents, clients, intellyDteWebhookEvents, integrationAttempts, inv
 import { getIntellyDteWebhookSecret } from "@/features/integrations/config-service";
 import { getIntellyDteConfig, normalizeIntellyDteTenantRut } from "@/features/integrations/config-service";
 import { getCompanySettings } from "@/features/company/service";
-import { getIntellyDteGateway, type IntellyDteGateway, type InvoiceResult } from "@/features/integrations/intellydte";
+import { getIntellyDteGateway, type IntellyDteGateway, type InvoiceResult, type InvoiceStatusResult } from "@/features/integrations/intellydte";
 import { isSiiAcceptedStatus, isSiiRejectedStatus } from "@/features/integrations/sii-status";
 import { providerData, providerError, type IntellyDteFacturaPayload } from "@/features/integrations/intellydte-contract";
 import { validChileanRut } from "@/features/clients/validation";
@@ -245,6 +245,23 @@ async function applyInvoiceResult(db: BillingDb, invoice: typeof invoices["$infe
     await db.update(integrationAttempts).set({ status: "ignored", completedAt: now, providerCode: result.kind === "rejected" || result.kind === "failed" || result.kind === "unavailable" ? result.code : result.providerCode, responseBody: providerResponseBody(result), safeMessage: "Evento o conciliación ignorada por estado terminal local." }).where(eq(integrationAttempts.id, attemptId));
     return result;
   }
+  // Estado final ya alcanzado: un resultado tardío o contradictorio del proveedor
+  // no debe degradar documento ni evidencia (patrón Bevox). Solo se continúa si
+  // confirma el mismo final (permite completar evidencia pendiente).
+  // Final = aceptado por el SII o rechazado por el SII (un "rejected" local
+  // pre-folio sin siiStatus sigue siendo reintentable).
+  const invoiceAcceptedFinal = invoice.status === "issued" && isSiiAcceptedStatus(invoice.siiStatus);
+  const invoiceRejectedFinal = invoice.status === "rejected" && isSiiRejectedStatus(invoice.siiStatus);
+  if (invoiceAcceptedFinal || invoiceRejectedFinal) {
+    const resultAcceptedFinal = result.kind === "issued" && isSiiAcceptedStatus(result.siiStatus);
+    const sameFinal =
+      (resultAcceptedFinal && invoice.status === "issued") ||
+      (result.kind === "rejected" && invoiceRejectedFinal);
+    if (!sameFinal) {
+      await db.update(integrationAttempts).set({ status: "ignored", completedAt: now, providerCode: result.kind === "issued" ? (result.providerDocumentId ?? null) : result.kind === "pending" ? (result.providerCode ?? null) : result.code, responseBody: providerResponseBody(result), safeMessage: "Conciliación ignorada: el documento ya alcanzó un estado terminal." }).where(eq(integrationAttempts.id, attemptId));
+      return result;
+    }
+  }
   if (result.kind === "issued") {
     const siiAccepted = isSiiAcceptedStatus(result.siiStatus);
     const localStatus = siiAccepted ? "issued" : "processing";
@@ -426,14 +443,52 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
   const issuedResult: InvoiceResult = dataResultValue.folio && dataResultValue.printPayload?.signedXmlBase64 ? { kind: "issued", providerDocumentId: effectiveDteId, folio: dataResultValue.folio, tipoDte: dataResultValue.tipoDte, issuedAt: dataResultValue.issuedAt ?? new Date().toISOString(), trackId: dataResultValue.trackId, siiStatus: dataResultValue.siiStatus, siiGlosa: dataResultValue.siiGlosa, signedXmlBase64: dataResultValue.printPayload.signedXmlBase64, printPayload: dataResultValue.printPayload, providerBody: body } : { kind: "pending", providerDocumentId: effectiveDteId, folio: dataResultValue.folio, trackId: dataResultValue.trackId, siiStatus: dataResultValue.siiStatus, siiGlosa: dataResultValue.siiGlosa, providerBody: body };
   const eventLower = event.toLowerCase();
   const isAcceptedEvent = eventLower === "dte.accepted" || eventLower === "dte.issued" || eventLower === "dte.authorized" || eventLower === "dte_accepted" || eventLower === "invoice.accepted" || eventLower === "invoice.issued";
-  const incomingTrackId = typeof data.trackId === "string" ? data.trackId : typeof data.track_id === "string" ? data.track_id : undefined;
-  const incomingSiiStatus = typeof data.siiStatus === "string" ? data.siiStatus : typeof data.sii_status === "string" ? data.sii_status : undefined;
-  const incomingSiiGlosa = typeof data.siiGlosa === "string" ? data.siiGlosa : typeof data.sii_glosa === "string" ? data.sii_glosa : undefined;
-  const accepted = isAcceptedEvent || isSiiAcceptedStatus(dataResultValue.siiStatus) || isSiiAcceptedStatus(incomingSiiStatus);
-  let materialized: EvidenceMaterializationResult | null = null;
-  if (accepted && issuedResult.kind === "issued") {
+  let incomingTrackId = typeof data.trackId === "string" ? data.trackId : typeof data.track_id === "string" ? data.track_id : undefined;
+  let incomingSiiStatus = typeof data.siiStatus === "string" ? data.siiStatus : typeof data.sii_status === "string" ? data.sii_status : undefined;
+  let incomingSiiGlosa = typeof data.siiGlosa === "string" ? data.siiGlosa : typeof data.sii_glosa === "string" ? data.sii_glosa : undefined;
+  let effFolio = dataResultValue.folio;
+  const acceptedPayload = isAcceptedEvent || isSiiAcceptedStatus(dataResultValue.siiStatus) || isSiiAcceptedStatus(incomingSiiStatus);
+
+  // Verificación pull estilo Bevox (processVerified): ante eventos terminales se
+  // reconfirma el estado real en IntellyDTE y solo se adopta si confirma un
+  // estado terminal (nunca degrada; si no hay gateway, vale el payload).
+  let verified: InvoiceStatusResult | null = null;
+  let verifiedAccepted = false;
+  let verifiedRejected = false;
+  if ((acceptedPayload || eventLower === "dte.rejected" || eventLower === "dte.review_required") && effectiveDteId) {
     try {
-      materialized = await materializeInvoiceEvidence({ invoiceId: invoice.id, result: issuedResult, payload: await payloadForInvoice(db, invoice.paymentOrderId), expectedIssuerRut: invoice.tenantRut });
+      verified = await (await getIntellyDteGateway()).getInvoiceStatus(effectiveDteId);
+      if (verified.kind === "issued" && verified.siiStatus && isSiiAcceptedStatus(verified.siiStatus)) {
+        verifiedAccepted = true;
+        incomingSiiStatus = verified.siiStatus;
+        if (verified.siiGlosa) incomingSiiGlosa = verified.siiGlosa;
+        if (verified.trackId !== undefined) incomingTrackId = verified.trackId ?? undefined;
+        if (verified.folio) effFolio = verified.folio;
+      } else if (verified.kind === "rejected") {
+        verifiedRejected = true;
+      }
+      console.log(JSON.stringify({ scope: "intellydte-webhook", event: "verify", eventId, kind: verified.kind }));
+    } catch (error) {
+      console.error(JSON.stringify({ scope: "intellydte-webhook", event: "verify-failed", eventId, error: error instanceof Error ? error.message : "unknown" }));
+    }
+  }
+  const accepted = acceptedPayload || verifiedAccepted;
+  // Equivale a issuedResult.kind === "rejected" (evita el narrowing del const
+  // a "issued" | "pending" que TS aplica por el inicializador ternario).
+  const rejected = eventLower === "dte.rejected" || verifiedRejected || isSiiRejectedStatus(dataResultValue.siiStatus);
+  let materialized: EvidenceMaterializationResult | null = null;
+  const verifiedIssued = verified && verified.kind === "issued" ? verified : null;
+  const evidenceInput: Extract<InvoiceResult, { kind: "issued" }> | null =
+    accepted
+      ? verifiedIssued?.signedXmlBase64 || verifiedIssued?.printPayload?.signedXmlBase64
+        ? verifiedIssued
+        : issuedResult.kind === "issued"
+          ? issuedResult
+          : null
+      : null;
+  if (evidenceInput) {
+    try {
+      materialized = await materializeInvoiceEvidence({ invoiceId: invoice.id, result: evidenceInput, payload: await payloadForInvoice(db, invoice.paymentOrderId), expectedIssuerRut: invoice.tenantRut });
     } catch (error) {
       materialized = { status: "failed", signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null, errorCode: error instanceof AppError ? error.code : "EVIDENCE_GENERATION_FAILED", errorMessage: error instanceof AppError ? error.message : "No se pudo materializar la evidencia fiscal." };
     }
@@ -442,16 +497,28 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
   await db.transaction(async (tx) => {
     const currentRows = await tx.select().from(invoices).where(eq(invoices.id, invoice.id)).limit(1).execute();
     const current = currentRows[0] ?? invoice;
-    const terminal = (current.status === "issued" && isSiiAcceptedStatus(current.siiStatus)) || current.status === "rejected";
+    const currentAcceptedFinal = current.status === "issued" && isSiiAcceptedStatus(current.siiStatus);
+    const currentRejectedFinal = current.status === "rejected" && isSiiRejectedStatus(current.siiStatus);
+    const currentFinal = currentAcceptedFinal || currentRejectedFinal;
+    const incomingMatchesFinal =
+      (accepted && currentAcceptedFinal) || (rejected && currentRejectedFinal);
+    if (currentFinal && !incomingMatchesFinal) {
+      // Estado final ya alcanzado: un evento tardío o contradictorio no debe
+      // degradar documento ni evidencia (patrón Bevox). Se acusa recibo.
+      await tx.update(intellyDteWebhookEvents).set({ processedAt: new Date() }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
+      await tx.insert(auditEvents).values(buildAuditEvent({ actorType: "system", action: "invoice.webhook_stale_ignored", entityType: "invoice", entityId: invoice.id, metadata: { eventId, event, dteRecordId, status: current.status, siiStatus: current.siiStatus } }));
+      webhookNextStatus = current.status;
+      return;
+    }
     const effectiveSiiStatus = incomingSiiStatus ?? (accepted ? "DOK" : current.siiStatus);
-    const nextStatus = terminal ? current.status : eventLower === "dte.rejected" ? "rejected" : accepted ? "issued" : eventLower === "dte.enqueued" ? "pending" : "processing";
+    const nextStatus = rejected ? "rejected" : accepted ? "issued" : eventLower === "dte.enqueued" ? "pending" : "processing";
     const evidenceStatus = accepted ? materialized?.status === "complete" ? "complete" : materialized?.status === "failed" ? "failed" : current.evidenceStatus === "complete" ? "complete" : "pending" : current.evidenceStatus;
     const effectiveTenantRut = current.tenantRut;
     const evidencePending = accepted && evidenceStatus === "pending";
     const evidenceError = materialized?.status === "complete" ? null : materialized?.errorMessage ?? (evidencePending ? "La factura fue aceptada; falta almacenar su evidencia tributaria." : current.evidenceError);
     const evidenceErrorCode = materialized?.status === "complete" ? null : materialized?.errorCode ?? (evidencePending ? "SIGNED_XML_PENDING" : nextStatus === "rejected" ? "SII_REJECTED" : current.lastErrorCode);
     const evidenceErrorMessage = materialized?.status === "complete" ? null : materialized?.errorMessage ?? (evidencePending ? "La factura fue aceptada; evidencia tributaria pendiente." : nextStatus === "rejected" ? incomingSiiGlosa ?? "Documento rechazado por el proveedor." : current.lastErrorMessage);
-    await tx.update(invoices).set({ status: nextStatus, tenantRut: effectiveTenantRut, providerDocumentId: dteRecordId ?? current.providerDocumentId, folio: dataResultValue.folio ?? current.folio, trackId: incomingTrackId ?? current.trackId, siiStatus: effectiveSiiStatus, siiGlosa: incomingSiiGlosa ?? current.siiGlosa, signedXmlEvidenceId: materialized?.signedXmlEvidenceId ?? current.signedXmlEvidenceId, reconstructedPdfEvidenceId: materialized?.reconstructedPdfEvidenceId ?? current.reconstructedPdfEvidenceId, evidenceStatus, evidenceError, rejectedAt: nextStatus === "rejected" ? new Date() : current.rejectedAt, issuedAt: nextStatus === "issued" ? current.issuedAt ?? new Date() : current.issuedAt, lastErrorCode: evidenceErrorCode, lastErrorMessage: evidenceErrorMessage, updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
+    await tx.update(invoices).set({ status: nextStatus, tenantRut: effectiveTenantRut, providerDocumentId: dteRecordId ?? current.providerDocumentId, folio: effFolio ?? current.folio, trackId: incomingTrackId ?? current.trackId, siiStatus: effectiveSiiStatus, siiGlosa: incomingSiiGlosa ?? current.siiGlosa, signedXmlEvidenceId: materialized?.signedXmlEvidenceId ?? current.signedXmlEvidenceId, reconstructedPdfEvidenceId: materialized?.reconstructedPdfEvidenceId ?? current.reconstructedPdfEvidenceId, evidenceStatus, evidenceError, rejectedAt: nextStatus === "rejected" ? new Date() : current.rejectedAt, issuedAt: nextStatus === "issued" ? current.issuedAt ?? new Date() : current.issuedAt, lastErrorCode: evidenceErrorCode, lastErrorMessage: evidenceErrorMessage, updatedAt: new Date() }).where(eq(invoices.id, invoice.id));
     if (nextStatus === "issued") await tx.update(paymentOrders).set({ status: "invoiced", invoicedAt: new Date(), updatedAt: new Date() }).where(and(eq(paymentOrders.id, current.paymentOrderId), inArray(paymentOrders.status, ["draft", "issued", "paid"])));
     await tx.update(intellyDteWebhookEvents).set({ processedAt: new Date() }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
     await tx.insert(auditEvents).values(buildAuditEvent({ actorType: "system", action: "invoice.webhook_updated", entityType: "invoice", entityId: invoice.id, metadata: { eventId, event, dteRecordId, tenantRut: effectiveTenantRut, status: nextStatus, evidenceStatus } }));
