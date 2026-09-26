@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ACTIONS_RUNNER_BACKEND == 'aws' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && format('codebuild-intelly-gestor-actions-{0}-{1}', github.run_id, github.run_attempt) || 'ubuntu-latest' }}
     timeout-minutes: 20
     services:
       mysql:

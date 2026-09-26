@@ -45,5 +45,5 @@ describe("database migration contract", () => {
       if (databaseCreated) await adminConnection.query(`DROP DATABASE IF EXISTS \`${databaseName}\``);
       await adminConnection.end();
     }
-  });
+  }, 20_000);
 });
