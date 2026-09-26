@@ -1,5 +1,9 @@
 # Intelly Gestor
 
+## Runner de CI
+
+La variable de repositorio `ACTIONS_RUNNER_BACKEND=aws` selecciona el proyecto CodeBuild `intelly-gestor-actions` en `sa-east-1`; `github` o variable ausente mantiene `ubuntu-latest`. Los PR de forks siempre utilizan GitHub-hosted. Este repositorio es público y los minutos de runners estándar de GitHub-hosted son gratuitos; activar AWS sólo tiene sentido si se necesita capacidad adicional o una política propia. La conexión GitHub, el webhook `WORKFLOW_JOB_QUEUED` y Docker privilegiado para MySQL deben estar listos antes de cambiar el switch.
+
 MVP web para administrar clientes, productos o servicios, órdenes de pago y facturas emitidas a
 través de un adaptador IntellyDTE. El proyecto nació con Spec Kit y conserva la especificación,
 arquitectura, contratos y tareas en `specs/001-business-management-mvp/`.
