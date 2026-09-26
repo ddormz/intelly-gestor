@@ -149,7 +149,6 @@ export function buildOrderPdf({ order, settings, logoDataUrl }: PdfPayload) {
   const discountPercent = Math.min(100, Math.max(0, Number(order.discountPercent) || (subtotal > 0 ? discount / subtotal * 100 : 0)));
   const discountedSubtotal = Math.max(0, subtotal - discount);
   const persistedLineValues = order.items.every(hasPersistedLineValues);
-  const taxable = persistedLineValues ? order.items.some((item) => item.taxable) : order.invoice;
 
   const drawTopBand = () => {
     const bandWidth = pageWidth / 3;

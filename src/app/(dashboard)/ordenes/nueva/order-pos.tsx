@@ -10,7 +10,7 @@ import { ClientFields } from "@/app/(dashboard)/clientes/client-manager";
 import { searchActiveCatalogAction, searchActiveClientsAction } from "@/features/orders/actions";
 import { calculateOrder } from "@/features/orders/domain";
 import { buildOrderCartPayload, type PosDraftLine } from "@/features/orders/pos";
-import { formatClpAmount, clp } from "@/lib/money";
+import { formatClpAmount } from "@/lib/money";
 import { getStatusLabel } from "@/lib/presentation";
 import type { ActionState } from "@/lib/action-state";
 
