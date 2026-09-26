@@ -51,8 +51,11 @@ export function buildFacturaPayload(input: { client: FiscalClientSnapshot; order
   });
   const taxable = items.filter((_, index) => Number(input.lines[index]!.taxRate) > 0).reduce((sum, item) => sum + item.montoItem, 0);
   const exempt = items.filter((_, index) => Number(input.lines[index]!.taxRate) === 0).reduce((sum, item) => sum + item.montoItem, 0);
+  // El SII/IntellyDTE exige RUT canónico sin puntos (78195295-8); en DB se
+  // guarda con formato chileno (78.195.295-8) y antes viajaba verbatim.
+  const receptorRut = normalizeIntellyDteTenantRut(input.client.taxId!);
   const payload: IntellyDteFacturaPayload = {
-    receptor: { rut: input.client.taxId!, razonSocial: input.client.legalName, ...(input.client.giro ? { giro: input.client.giro } : {}), ...(input.client.addressLine ? { direccion: input.client.addressLine } : {}), ...(input.client.commune ? { comuna: input.client.commune } : {}), ...(input.client.city ? { ciudad: input.client.city } : {}), ...(input.client.email ? { email: input.client.email } : {}) },
+    receptor: { rut: receptorRut, razonSocial: input.client.legalName, ...(input.client.giro ? { giro: input.client.giro } : {}), ...(input.client.addressLine ? { direccion: input.client.addressLine } : {}), ...(input.client.commune ? { comuna: input.client.commune } : {}), ...(input.client.city ? { ciudad: input.client.city } : {}), ...(input.client.email ? { email: input.client.email } : {}) },
     items,
     montoNeto: taxable,
     ...(exempt > 0 ? { montoExento: exempt } : {}),
@@ -343,7 +346,7 @@ export async function issueInvoice(orderId: string, userId: string, gateway?: In
   const attempt = await createAttempt(db, invoiceId, idempotencyKey, hash, payload, (previousAttempt?.attemptNumber ?? 0) + 1);
   const previousProviderCode = previousAttempt ? providerError(previousAttempt.responseBody, previousAttempt.providerCode ?? "", "").code : "";
   const preserveLegacyAsyncMode = Boolean(existing && [existing.lastErrorCode, previousProviderCode].some((code) => /^(?:ASYNC_|IDEMPOTENCY_PREVIOUSLY_FAILED)/.test(code ?? "")));
-  const result = await provider.issueInvoice({ idempotencyKey, correlationId: attempt.correlationId, orderNumber: order.number, total: order.total, recipientTaxId: order.clientTaxId ?? "", payload, ...(preserveLegacyAsyncMode ? { emissionMode: "async" as const } : {}) });
+  const result = await provider.issueInvoice({ idempotencyKey, correlationId: attempt.correlationId, orderNumber: order.number, total: order.total, recipientTaxId: order.clientTaxId ? normalizeIntellyDteTenantRut(order.clientTaxId) : "", payload, ...(preserveLegacyAsyncMode ? { emissionMode: "async" as const } : {}) });
   return applyInvoiceResult(db, { ...(existing ?? { id: invoiceId, paymentOrderId: orderId, status: "processing", providerDocumentId: null, folio: null, trackId: null, siiStatus: null, siiGlosa: null, signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null, evidenceStatus: "pending", evidenceError: null, issuedAt: null }) } as typeof invoices["$inferSelect"], orderId, attempt.id, result, payload, userId);
 }
 

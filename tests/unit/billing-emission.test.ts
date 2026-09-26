@@ -54,6 +54,14 @@ describe("fiscal emission orchestration contracts", () => {
     expect(() => assertProviderMatchesOrder({ kind: "issued", providerDocumentId: "dte-1", folio: "42", issuedAt: "2026-08-15T12:00:00Z", signedXmlBase64: "xml" }, { type: "33", folio: 42, receiver: { rut: "96543210-1", name: "OTHER", businessLine: null, address: null, commune: null, city: null }, totals: { net: 1000, exempt: 0, ivaRate: 19, iva: 190, total: 1190 } } as never, payload)).toThrow("receptor del XML firmado");
   });
 
+  it("normalizes the receiver RUT to the SII canonical form without dots", () => {
+    const base = { legalName: "CLIENTE SPA", giro: "Comercio", addressLine: "Destino 456", commune: "Providencia", city: "Santiago" };
+    const order = { total: "1190", taxTotal: "190", discountTotal: "0", notes: null };
+    const lines = [{ description: "Servicio", quantity: "1", subtotal: "1000", discountAmount: "0", taxRate: "19", taxAmount: "190", total: "1190", unitPrice: "1000" }];
+    expect(buildFacturaPayload({ client: { ...base, taxId: "78.195.295-8" }, order, lines }).receptor.rut).toBe("78195295-8");
+    expect(buildFacturaPayload({ client: { ...base, taxId: "76.073.165-k" }, order, lines }).receptor.rut).toBe("76073165-K");
+  });
+
   it("verifies the exact raw webhook body with a sha256 signature", () => {
     const rawBody = '{"eventId":"evt-1"}';
     const signature = `sha256=${createHmac("sha256", "secret").update(rawBody).digest("hex")}`;

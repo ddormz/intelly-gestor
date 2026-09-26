@@ -82,7 +82,9 @@ function dataResult(data: NormalizedProviderData, fallbackId?: string, requireEv
 }
 
 function payloadForCommand(command: IssueInvoiceCommand): IntellyDteFacturaPayload {
-  return command.payload ?? { receptor: { rut: command.recipientTaxId, razonSocial: command.recipientTaxId }, items: [], montoTotal: Math.round(Number(command.total)) };
+  if (command.payload) return command.payload;
+  const rut = normalizeIntellyDteTenantRut(command.recipientTaxId);
+  return { receptor: { rut, razonSocial: rut }, items: [], montoTotal: Math.round(Number(command.total)) };
 }
 
 export class IntellyDteHttpGateway implements IntellyDteGateway {
