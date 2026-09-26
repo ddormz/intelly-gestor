@@ -345,7 +345,12 @@ export async function issueOrder(id: string, userId: string, options: IssueOrder
   });
 }
 
-export async function markOrderPaid(id: string, userId: string, idempotencyKey: string) {
+export async function markOrderPaid(
+  id: string,
+  userId: string,
+  idempotencyKey: string,
+  options: { method?: "manual" | "external"; externalReference?: string } = {},
+) {
   return getDb().transaction(async (tx) => {
     const [existing] = await tx.select().from(payments).where(eq(payments.idempotencyKey, idempotencyKey)).limit(1).execute();
     if (existing) return existing.id;
@@ -355,13 +360,27 @@ export async function markOrderPaid(id: string, userId: string, idempotencyKey: 
     if (order.status !== "issued" && order.status !== "invoiced") {
       throw new AppError("INVALID_ORDER_TRANSITION", `No se puede registrar pago para una orden en estado ${order.status}.`, 409);
     }
+    // "system-webpay" no existe en users.id y recorded_by/updated_by/actor_user_id
+    // tienen FK a users: se usa el creador de la orden como usuario efectivo.
+    // El origen sistema queda trazado en idempotencyKey/externalReference/auditoría.
+    const effectiveUserId = userId === "system-webpay" ? (order.createdBy ?? userId) : userId;
     const paymentId = randomUUID();
     const now = new Date();
-    await tx.insert(payments).values({ id: paymentId, paymentOrderId: id, idempotencyKey, amount: order.total, currency: order.currency, method: "manual", paidAt: now, recordedBy: userId });
+    await tx.insert(payments).values({
+      id: paymentId,
+      paymentOrderId: id,
+      idempotencyKey,
+      amount: order.total,
+      currency: order.currency,
+      method: options.method ?? "manual",
+      externalReference: options.externalReference,
+      paidAt: now,
+      recordedBy: effectiveUserId,
+    });
     const nextStatus = order.status === "invoiced" ? "invoiced" : "paid";
-    const result = await tx.update(paymentOrders).set({ status: nextStatus, paidAt: now, updatedBy: userId, version: order.version + 1 }).where(and(eq(paymentOrders.id, id), eq(paymentOrders.version, order.version))).execute();
+    const result = await tx.update(paymentOrders).set({ status: nextStatus, paidAt: now, updatedBy: effectiveUserId, version: order.version + 1 }).where(and(eq(paymentOrders.id, id), eq(paymentOrders.version, order.version))).execute();
     if (Number(result[0]?.affectedRows ?? 0) !== 1) throw new AppError("ORDER_VERSION_CONFLICT", "La orden cambió mientras se registraba el pago. Intenta nuevamente.", 409);
-    await auditOrder(tx, userId, "order.paid", id, { amount: order.total });
+    await auditOrder(tx, effectiveUserId, "order.paid", id, { amount: order.total });
     return paymentId;
   });
 }
@@ -381,6 +400,7 @@ export async function findPublicOrder(token: string) {
     issuedAt: paymentOrders.issuedAt,
     paidAt: paymentOrders.paidAt,
     notes: paymentOrders.notes,
+    createdBy: paymentOrders.createdBy,
     clientName: clients.legalName,
     clientTaxId: clients.taxId,
     clientEmail: clients.email,
@@ -418,6 +438,7 @@ export async function findPublicOrder(token: string) {
     issuedAt: row.issuedAt,
     paidAt: row.paidAt,
     notes: row.notes,
+    createdBy: row.createdBy,
     clientName: row.clientName,
     clientTaxId: row.clientTaxId,
     clientEmail: row.clientEmail,

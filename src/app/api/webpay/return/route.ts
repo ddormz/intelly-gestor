@@ -174,7 +174,13 @@ async function handleReturn(request: Request) {
 
     if (result.responseCode === 0) {
       if (order && order.status !== "paid" && order.status !== "invoiced") {
-        await markOrderPaid(order.id, "system-webpay", `webpay:${tokenWs}`);
+        // createdBy es un users.id real: recorded_by/updated_by/actor_user_id
+        // tienen FK a users y "system-webpay" la violaba (cargo hecho, registro fallido).
+        const effectiveUserId = order.createdBy;
+        await markOrderPaid(order.id, effectiveUserId, `webpay:${tokenWs}`, {
+          method: "external",
+          externalReference: `webpay:${tokenWs}`,
+        });
         await writeAudit({
           actorType: "public",
           action: "order.paid_webpay",
@@ -192,7 +198,7 @@ async function handleReturn(request: Request) {
 
         // Auto-emisión de Factura Electrónica y auto-envío por correo
         try {
-          const emissionResult = await issueInvoice(order.id, "system-webpay");
+          const emissionResult = await issueInvoice(order.id, effectiveUserId);
           if (emissionResult.kind === "issued") {
             const db = getDb();
             const [createdInvoice] = await db
@@ -218,7 +224,7 @@ async function handleReturn(request: Request) {
             const targetEmail = latestDelivery?.recipient || order.clientEmail;
 
             if (createdInvoice && targetEmail) {
-              await sendInvoiceEmail(createdInvoice.id, "system-webpay", targetEmail);
+              await sendInvoiceEmail(createdInvoice.id, effectiveUserId, targetEmail);
             }
           }
           returnLog(requestId, "auto-invoice-done", { elapsedMs: Date.now() - t0 });
