@@ -11,7 +11,7 @@ vi.mock("@/features/billing/emission", () => ({
   issueInvoice: mocks.issueInvoice,
   refreshInvoiceStatus: vi.fn(),
 }));
-vi.mock("@/features/billing/service", () => ({ importHistoricalInvoices: vi.fn(), sendInvoiceEmail: vi.fn() }));
+vi.mock("@/features/billing/service", () => ({ importHistoricalInvoices: vi.fn(), sendInvoiceEmail: vi.fn(), sendInvoiceIssuedEmailIfNeeded: vi.fn(async () => ({ sent: false })), sendOrderInvoiceEmailIfNeeded: vi.fn(async () => ({ sent: false })) }));
 vi.mock("@/features/integrations/intellydte", () => ({ getIntellyDteGateway: vi.fn() }));
 vi.mock("@/features/audit/service", () => ({ writeAudit: vi.fn() }));
 

@@ -12,6 +12,7 @@ import { validChileanRut } from "@/features/clients/validation";
 import { getEnv } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 import { getFiscalEvidenceArtifact, storeReconstructedPdf } from "./evidence";
+import { sendInvoiceIssuedEmailIfNeeded } from "./service";
 import { materializeInvoiceEvidence, normalizeRut, type EvidenceMaterializationResult } from "./evidence-orchestration";
 import { parseSignedDteXmlBytes, renderFiscalPdf } from "./xml";
 import { buildAuditEvent } from "@/features/audit/service";
@@ -437,6 +438,7 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
       materialized = { status: "failed", signedXmlEvidenceId: null, reconstructedPdfEvidenceId: null, errorCode: error instanceof AppError ? error.code : "EVIDENCE_GENERATION_FAILED", errorMessage: error instanceof AppError ? error.message : "No se pudo materializar la evidencia fiscal." };
     }
   }
+  let webhookNextStatus = "processing";
   await db.transaction(async (tx) => {
     const currentRows = await tx.select().from(invoices).where(eq(invoices.id, invoice.id)).limit(1).execute();
     const current = currentRows[0] ?? invoice;
@@ -453,7 +455,18 @@ export async function handleIntellyDteWebhook(rawBody: string, signature: string
     if (nextStatus === "issued") await tx.update(paymentOrders).set({ status: "invoiced", invoicedAt: new Date(), updatedAt: new Date() }).where(and(eq(paymentOrders.id, current.paymentOrderId), inArray(paymentOrders.status, ["draft", "issued", "paid"])));
     await tx.update(intellyDteWebhookEvents).set({ processedAt: new Date() }).where(eq(intellyDteWebhookEvents.providerEventId, eventId));
     await tx.insert(auditEvents).values(buildAuditEvent({ actorType: "system", action: "invoice.webhook_updated", entityType: "invoice", entityId: invoice.id, metadata: { eventId, event, dteRecordId, tenantRut: effectiveTenantRut, status: nextStatus, evidenceStatus } }));
+    webhookNextStatus = nextStatus;
   });
+  // Envío automático al quedar aceptada por el SII (idempotente; si la
+  // evidencia aún está pendiente, se reintenta en la próxima transición).
+  if (webhookNextStatus === "issued") {
+    try {
+      const outcome = await sendInvoiceIssuedEmailIfNeeded(invoice.id);
+      console.log(JSON.stringify({ scope: "invoice-auto-email", event: "webhook", invoiceId: invoice.id, sent: outcome.sent, reason: "reason" in outcome ? outcome.reason : undefined }));
+    } catch (error) {
+      console.error(JSON.stringify({ scope: "invoice-auto-email", event: "webhook-failed", invoiceId: invoice.id, error: error instanceof Error ? error.message : "unknown" }));
+    }
+  }
   return { accepted: true, duplicate: false, eventId, status: "processed" };
 }
 

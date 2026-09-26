@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
-import { getDb } from "@/db";
-import { invoices, orderEmailDeliveries } from "@/db/schema";
 import { commitWebpayTransaction } from "@/features/integrations/webpay";
 import { markOrderPaid } from "@/features/orders/service";
 import { findPublicOrder } from "@/features/orders/service";
 import { issueInvoice } from "@/features/billing/emission";
-import { sendInvoiceEmail } from "@/features/billing/service";
+import { sendOrderInvoiceEmailIfNeeded } from "@/features/billing/service";
 import { writeAudit } from "@/features/audit/service";
 import { getEnv } from "@/lib/env";
 
@@ -196,38 +193,21 @@ async function handleReturn(request: Request) {
         });
         returnLog(requestId, "order-marked-paid", { orderId: order.id, elapsedMs: Date.now() - t0 });
 
-        // Auto-emisión de Factura Electrónica y auto-envío por correo
+        // Auto-emisión de Factura Electrónica y auto-envío por correo.
+        // El envío es idempotente y solo ocurre si quedó aceptada por el SII;
+        // si quedó pendiente, el webhook lo envía al confirmarse.
         try {
           const emissionResult = await issueInvoice(order.id, effectiveUserId);
           if (emissionResult.kind === "issued") {
-            const db = getDb();
-            const [createdInvoice] = await db
-              .select({ id: invoices.id })
-              .from(invoices)
-              .where(eq(invoices.paymentOrderId, order.id))
-              .orderBy(desc(invoices.createdAt))
-              .limit(1)
-              .execute();
-
-            // Priorizar el correo al que se le despachó la orden originalmente
-            const [latestDelivery] = await db
-              .select({ recipient: orderEmailDeliveries.recipient })
-              .from(orderEmailDeliveries)
-              .where(and(
-                eq(orderEmailDeliveries.paymentOrderId, order.id),
-                eq(orderEmailDeliveries.status, "sent")
-              ))
-              .orderBy(desc(orderEmailDeliveries.createdAt))
-              .limit(1)
-              .execute();
-
-            const targetEmail = latestDelivery?.recipient || order.clientEmail;
-
-            if (createdInvoice && targetEmail) {
-              await sendInvoiceEmail(createdInvoice.id, effectiveUserId, targetEmail);
-            }
+            const emailOutcome = await sendOrderInvoiceEmailIfNeeded(order.id, effectiveUserId);
+            returnLog(requestId, "auto-invoice-done", {
+              emailed: emailOutcome.sent,
+              reason: "reason" in emailOutcome ? emailOutcome.reason : undefined,
+              elapsedMs: Date.now() - t0,
+            });
+          } else {
+            returnLog(requestId, "auto-invoice-pending", { kind: emissionResult.kind, elapsedMs: Date.now() - t0 });
           }
-          returnLog(requestId, "auto-invoice-done", { elapsedMs: Date.now() - t0 });
         } catch (autoFiscalError) {
           console.error("Auto invoice / email error after Webpay payment:", autoFiscalError);
           returnLog(requestId, "auto-invoice-failed", {

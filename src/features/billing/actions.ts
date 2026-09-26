@@ -13,15 +13,26 @@ import { readCsvFile } from "@/lib/csv";
 import type { ActionState } from "@/lib/action-state";
 import { parseHistoricalInvoicesCsv } from "./csv";
 import { issueInvoice, refreshInvoiceStatus, regenerateInvoicePdf } from "./emission";
-import { importHistoricalInvoices, sendInvoiceEmail } from "./service";
+import { importHistoricalInvoices, sendInvoiceEmail, sendInvoiceIssuedEmailIfNeeded, sendOrderInvoiceEmailIfNeeded } from "./service";
 
 export async function issueInvoiceAction(_: ActionState, formData: FormData): Promise<ActionState> {
   try {
     await enforceSameOrigin();
     const user = await requireUser();
-    const result = await issueInvoice(String(formData.get("orderId")), user.userId);
+    const orderId = String(formData.get("orderId"));
+    const result = await issueInvoice(orderId, user.userId);
     revalidatePath("/facturacion"); revalidatePath("/ordenes"); revalidatePath("/");
     if (result.kind === "rejected" || result.kind === "failed" || result.kind === "unavailable") return { status: "error", message: result.safeMessage };
+    if (result.kind === "issued" && isSiiAcceptedStatus(result.siiStatus)) {
+      // El envío nunca rompe el resultado de la emisión: es best-effort y
+      // queda registrado en auditoría (invoice.auto_email_failed si falla).
+      try {
+        await sendOrderInvoiceEmailIfNeeded(orderId, user.userId);
+      } catch {
+        // ignore: auditado dentro del helper
+      }
+      revalidatePath("/facturacion");
+    }
     return { status: "success", message: result.kind === "issued" ? isSiiAcceptedStatus(result.siiStatus) ? "Factura aceptada por el SII." : "Factura emitida; esperando confirmación del SII." : result.safeMessage ?? "Solicitud de facturación registrada; emisión pendiente." };
   } catch (error) {
     if (error instanceof AppError) return { status: "error", message: error.message };
@@ -46,9 +57,18 @@ export async function refreshInvoiceStatusAction(_: ActionState, formData: FormD
   try {
     await enforceSameOrigin();
     const user = await requireUser();
-    const result = await refreshInvoiceStatus(String(formData.get("invoiceId")), user.userId);
+    const invoiceId = String(formData.get("invoiceId"));
+    const result = await refreshInvoiceStatus(invoiceId, user.userId);
     revalidatePath("/facturacion");
     if (result.kind === "rejected" || result.kind === "failed" || result.kind === "unavailable") return { status: "error", message: result.safeMessage };
+    if (result.kind === "issued" && isSiiAcceptedStatus(result.siiStatus)) {
+      try {
+        await sendInvoiceIssuedEmailIfNeeded(invoiceId, user.userId);
+      } catch {
+        // ignore: auditado dentro del helper
+      }
+      revalidatePath("/facturacion");
+    }
     return { status: "success", message: result.kind === "issued" ? isSiiAcceptedStatus(result.siiStatus) ? "Estado conciliado: factura aceptada por el SII." : "Documento emitido; esperando confirmación del SII." : result.safeMessage ?? "Estado consultado; la factura sigue pendiente." };
   } catch (error) {
     return { status: "error", message: safeError(error).message };
@@ -62,6 +82,11 @@ export async function regenerateInvoicePdfAction(_: ActionState, formData: FormD
     const invoiceId = String(formData.get("invoiceId") ?? "").trim();
     if (!invoiceId) return { status: "error", message: "Selecciona una factura válida." };
     const result = await regenerateInvoicePdf(invoiceId, user.userId);
+    try {
+      await sendInvoiceIssuedEmailIfNeeded(invoiceId, user.userId);
+    } catch {
+      // ignore: auditado dentro del helper
+    }
     revalidatePath("/facturacion");
     return { status: "success", message: `PDF tributario regenerado para la Factura F${result.folio}.` };
   } catch (error) {

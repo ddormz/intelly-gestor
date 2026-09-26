@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, count, desc, eq, gte, like, lte, or, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
-import { auditEvents, clients, invoices, orderEmailDeliveries, paymentOrders } from "@/db/schema";
+import { auditEvents, clients, invoices, orderEmailDeliveries, paymentOrders, users } from "@/db/schema";
 import { buildAuditEvent, writeAudit } from "@/features/audit/service";
 import { sendInvoiceMessage } from "@/features/email/mailer";
+import { isSiiAcceptedStatus } from "@/features/integrations/sii-status";
 import { getFiscalEvidenceArtifact } from "@/features/billing/evidence";
 import { AppError } from "@/lib/errors";
 import type { HistoricalInvoiceCsvRow } from "./csv";
@@ -168,4 +169,78 @@ export async function sendInvoiceEmail(invoiceId: string, actorUserId: string, t
   });
 
   return { recipient, folio: invoice.folio ?? "0" };
+}
+
+export type InvoiceAutoEmailOutcome =
+  | { sent: true; invoiceId: string }
+  | { sent: false; invoiceId?: string; reason: "not-found" | "not-accepted" | "evidence-pending" | "already-sent" | "send-failed" };
+
+/**
+ * Envía la factura por correo solo cuando está aceptada por el SII, una única
+ * vez por factura (idempotente vía auditoría `invoice.emailed`). No lanza: el
+ * fallo queda en `invoice.auto_email_failed` y se reintenta en la próxima
+ * transición (webhook, conciliación, regeneración de PDF o reingreso).
+ */
+export async function sendInvoiceIssuedEmailIfNeeded(invoiceId: string, actorUserId?: string): Promise<InvoiceAutoEmailOutcome> {
+  const db = getDb();
+  const [invoice] = await db
+    .select({
+      id: invoices.id,
+      status: invoices.status,
+      siiStatus: invoices.siiStatus,
+      paymentOrderId: invoices.paymentOrderId,
+      hasPdf: invoices.reconstructedPdfEvidenceId,
+      orderCreatedBy: paymentOrders.createdBy,
+    })
+    .from(invoices)
+    .innerJoin(paymentOrders, eq(paymentOrders.id, invoices.paymentOrderId))
+    .where(eq(invoices.id, invoiceId))
+    .limit(1)
+    .execute();
+
+  if (!invoice) return { sent: false, reason: "not-found" };
+  if (invoice.status !== "issued" || !isSiiAcceptedStatus(invoice.siiStatus)) return { sent: false, invoiceId, reason: "not-accepted" };
+  if (!invoice.hasPdf) return { sent: false, invoiceId, reason: "evidence-pending" };
+
+  const [alreadyEmailed] = await db
+    .select({ id: auditEvents.id })
+    .from(auditEvents)
+    .where(and(eq(auditEvents.entityType, "invoice"), eq(auditEvents.entityId, invoiceId), eq(auditEvents.action, "invoice.emailed")))
+    .limit(1)
+    .execute();
+  if (alreadyEmailed) return { sent: false, invoiceId, reason: "already-sent" };
+
+  // recorded_by/actor_user_id tienen FK a users: nunca usar pseudo-usuarios.
+  let effectiveUserId = actorUserId ?? invoice.orderCreatedBy;
+  if (actorUserId) {
+    const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, actorUserId)).limit(1).execute();
+    if (!user) effectiveUserId = invoice.orderCreatedBy;
+  }
+
+  try {
+    await sendInvoiceEmail(invoiceId, effectiveUserId);
+    return { sent: true, invoiceId };
+  } catch (error) {
+    await writeAudit({
+      actorType: "system",
+      action: "invoice.auto_email_failed",
+      entityType: "invoice",
+      entityId: invoiceId,
+      metadata: { error: error instanceof Error ? error.message : "No se pudo enviar la factura automáticamente." },
+    }).catch(() => undefined);
+    return { sent: false, invoiceId, reason: "send-failed" };
+  }
+}
+
+/** Variante por orden: opera sobre la última factura de la orden de pago. */
+export async function sendOrderInvoiceEmailIfNeeded(paymentOrderId: string, actorUserId?: string): Promise<InvoiceAutoEmailOutcome> {
+  const [latest] = await getDb()
+    .select({ id: invoices.id })
+    .from(invoices)
+    .where(eq(invoices.paymentOrderId, paymentOrderId))
+    .orderBy(desc(invoices.createdAt))
+    .limit(1)
+    .execute();
+  if (!latest) return { sent: false, reason: "not-found" };
+  return sendInvoiceIssuedEmailIfNeeded(latest.id, actorUserId);
 }

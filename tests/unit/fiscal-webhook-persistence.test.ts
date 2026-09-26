@@ -6,6 +6,7 @@ import { handleIntellyDteWebhook } from "@/features/billing/emission";
 vi.mock("@/db", () => ({ getDb: vi.fn() }));
 vi.mock("@/features/integrations/config-service", () => ({ getIntellyDteWebhookSecret: vi.fn(async () => "webhook-secret"), getIntellyDteConfig: vi.fn() }));
 vi.mock("@/features/audit/service", () => ({ buildAuditEvent: vi.fn(() => ({ id: "audit", correlationId: "corr", metadata: {} })) }));
+vi.mock("@/features/billing/service", () => ({ sendInvoiceIssuedEmailIfNeeded: vi.fn(async () => ({ sent: false })) }));
 
 function chain<T>(result: T) {
   const value = { from: vi.fn(() => value), where: vi.fn(() => value), limit: vi.fn(() => value), execute: vi.fn(async () => result) };
