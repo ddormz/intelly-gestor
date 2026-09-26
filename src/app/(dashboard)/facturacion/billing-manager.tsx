@@ -15,7 +15,6 @@ import {
   Mail,
   PlusCircle,
   Receipt,
-  ReceiptText,
   RefreshCw,
   Upload,
 } from "lucide-react";
@@ -63,13 +62,6 @@ type InvoiceItem = {
   lastErrorMessage: string | null;
   hasPdf: boolean;
   hasXml: boolean;
-};
-
-type ReadyOrder = {
-  id: string;
-  number: string;
-  clientName: string;
-  total: string;
 };
 
 function FiscalStatusIcon({ status, siiStatus, providerDocumentId, folio, hasEmissionError }: { status: string; siiStatus: string | null; providerDocumentId: string | null; folio: string | null; hasEmissionError: boolean }) {
@@ -299,7 +291,6 @@ function FolioStatusPanel({ refreshKey }: { refreshKey: number }) {
 
 export function BillingManager({
   items,
-  ready,
   canImport,
   query,
   page,
@@ -307,7 +298,6 @@ export function BillingManager({
   total,
 }: {
   items: InvoiceItem[];
-  ready: ReadyOrder[];
   canImport: boolean;
   query: PageQuery;
   page: number;
@@ -379,48 +369,6 @@ export function BillingManager({
       )}
 
       <FolioStatusPanel refreshKey={folioRefreshKey} />
-
-      {ready.length ? (
-        <Card className="brand-card">
-          <h2 className="mb-5 text-lg font-bold text-[var(--brand-deep)]">Listas para facturar</h2>
-          <div className="grid gap-3">
-            {ready.map((order) => (
-              <div
-                key={order.id}
-                className="flex flex-col justify-between gap-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-background-soft)] p-4 sm:flex-row sm:items-center"
-              >
-                <div>
-                  <p className="font-mono text-xs text-[var(--color-muted-foreground)]">{order.number}</p>
-                  <p className="mt-1 font-semibold text-[var(--brand-deep)]">{order.clientName}</p>
-                  <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
-                    {formatClpAmount(Number(order.total))}
-                  </p>
-                </div>
-                <ActionModal
-                  iconOnly
-                  triggerLabel="Emitir factura"
-                  triggerIcon={<ReceiptText size={16} />}
-                  title="Emitir factura"
-                  description="Se enviará la orden a IntellyDTE para emitir la factura electrónica."
-                  submitLabel="Confirmar emisión"
-                  pendingLabel="Emitiendo factura…"
-                  action={issueInvoiceAction}
-                >
-                  {() => (
-                    <>
-                      <input type="hidden" name="orderId" value={order.id} />
-                      <p className="text-sm text-[var(--color-muted-foreground)]">
-                        Confirma la facturación de <strong>{order.number}</strong> por{" "}
-                        <strong>{formatClpAmount(Number(order.total))}</strong>.
-                      </p>
-                    </>
-                  )}
-                </ActionModal>
-              </div>
-            ))}
-          </div>
-        </Card>
-      ) : null}
 
       <TableToolbar
         query={query}

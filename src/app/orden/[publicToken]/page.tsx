@@ -40,8 +40,13 @@ export default async function PublicOrderPage({
   const authCode = typeof queryObj?.auth === "string" ? queryObj.auth : null;
   const errorMessage = typeof queryObj?.message === "string" ? queryObj.message : typeof queryObj?.error === "string" ? queryObj.error : null;
 
+  // La DB es la única fuente de verdad: el query param ?status= es solo un hint
+  // transitorio del callback y puede forjarse a mano (?status=paid sin pagar).
+  const isPaidDB = order.status === "paid" || order.status === "invoiced";
   const isPayable = order.status === "issued" || order.status === "draft";
-  const isPaid = order.status === "paid" || order.status === "invoiced" || paymentStatus === "paid";
+  const isPaid = isPaidDB;
+  const showPaidSuccess = paymentStatus === "paid" && isPaidDB;
+  const showUnconfirmedPaidHint = paymentStatus === "paid" && !isPaidDB;
 
   return (
     <main className="min-h-screen bg-[var(--color-background)] p-3 sm:p-6 lg:p-8">
@@ -64,8 +69,8 @@ export default async function PublicOrderPage({
           </div>
         </div>
 
-        {/* WebPay Status Alerts */}
-        {paymentStatus === "paid" && (
+        {/* WebPay Status Alerts (solo si la DB lo confirma; el query param puede forjarse) */}
+        {showPaidSuccess && (
           <Alert tone="success">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="size-5 shrink-0 text-[var(--color-success)]" />
@@ -79,7 +84,14 @@ export default async function PublicOrderPage({
           </Alert>
         )}
 
-        {paymentStatus === "rejected" && (
+        {showUnconfirmedPaidHint && (
+          <Alert tone="info">
+            <p className="font-bold">No pudimos confirmar tu pago.</p>
+            <p className="text-xs">Si pagaste y ves este mensaje, espera unos segundos y recarga. Si el cargo aparece en tu banco, contáctanos con tu número de orden.</p>
+          </Alert>
+        )}
+
+        {!isPaidDB && paymentStatus === "rejected" && (
           <Alert tone="error">
             <div className="flex items-center gap-2">
               <XCircle className="size-5 shrink-0 text-[var(--color-danger)]" />
@@ -91,7 +103,7 @@ export default async function PublicOrderPage({
           </Alert>
         )}
 
-        {paymentStatus === "cancelled" && (
+        {!isPaidDB && paymentStatus === "cancelled" && (
           <Alert tone="info">
             <div className="flex items-center gap-2">
               <AlertCircle className="size-5 shrink-0 text-[var(--brand-royal)]" />
@@ -103,7 +115,7 @@ export default async function PublicOrderPage({
           </Alert>
         )}
 
-        {errorMessage && (
+        {!isPaidDB && errorMessage && (
           <Alert tone="error">
             <p className="font-bold">Ocurrió un error al procesar el pago:</p>
             <p className="text-xs">{errorMessage}</p>

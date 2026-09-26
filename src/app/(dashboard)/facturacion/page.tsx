@@ -1,4 +1,4 @@
-import { listInvoices, listPaidOrdersWithoutInvoice } from "@/features/billing/service";
+import { listInvoices } from "@/features/billing/service";
 import { requireUser } from "@/features/auth/session";
 import { BillingManager } from "./billing-manager";
 import { parsePageQuery } from "@/lib/list-query";
@@ -6,9 +6,8 @@ import { parsePageQuery } from "@/lib/list-query";
 export default async function BillingPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const raw = await searchParams;
   const query = parsePageQuery(raw);
-  const [items, ready, user] = await Promise.all([
+  const [items, user] = await Promise.all([
     listInvoices(query),
-    listPaidOrdersWithoutInvoice(),
     requireUser(),
   ]);
   return (
@@ -35,7 +34,6 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
         hasPdf: Boolean(item.hasPdf),
         hasXml: Boolean(item.hasXml),
       }))}
-      ready={ready}
     />
   );
 }
